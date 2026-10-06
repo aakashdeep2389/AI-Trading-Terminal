@@ -56,15 +56,24 @@
   --verdict-reject-text: #dc2626;
 }
 
-body {
+html, body {
+  width: 100%;
+  min-height: 100vh;
   margin: 0;
+  padding: 0;
   background: var(--bg-body);
   color: var(--text-body);
   font-family: Inter, system-ui, sans-serif;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-main { max-width: 1500px; margin: auto; padding: 22px; }
+main {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 16px 20px;
+}
 
 /* Header & Separator Styles */
 .terminal-header {
@@ -432,7 +441,7 @@ main { max-width: 1500px; margin: auto; padding: 22px; }
 }
 
 .chart-frame {
-  height: 500px;
+  height: clamp(500px, 58vh, 720px);
   position: relative;
 }
 

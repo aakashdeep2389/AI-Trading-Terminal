@@ -239,7 +239,7 @@ export default function Home() {
 
         <div className="header-controls">
           <div className="control-group">
-            <span className="control-label">Symbol</span>
+            {/* <span className="control-label">Symbol</span> */}
             <div className="pills">
               {['BTCUSDT', 'XAUUSD'].map(item => (
                 <button
@@ -441,7 +441,8 @@ export default function Home() {
             <>
               {/* Symbol & Timeframe header */}
               <div className="analysis-header">
-                <strong>{symbol}</strong> · <span>{timeframe}</span>
+                <strong>{symbol}</strong> 
+                · <span>{timeframe}</span>
               </div>
 
               {/* Trend rationale */}
