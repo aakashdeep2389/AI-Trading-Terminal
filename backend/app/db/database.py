@@ -18,7 +18,7 @@ class Base(DeclarativeBase):
 
 async def init_db():
     global database_available
-    from .models import CandleRecord  # noqa: F401 — ensures table is registered
+    from .models import CandleRecord, JournalTrade  # noqa: F401 — ensures tables are registered
 
     # Retry mechanism to handle database startup race condition
     max_retries = 10

@@ -14,8 +14,11 @@ from ..db.database import get_db
 from ..auth.router import router as auth_router
 from ..auth.dependencies import get_current_active_user
 
+from ..journal.service import router as journal_router
+
 router=APIRouter()
 router.include_router(auth_router)
+router.include_router(journal_router)
 @router.get('/health')
 async def health(): return {'status':'ok','service':'trading-api','version':'1.1.0', 'market': provider_status(), 'redis': hub.redis_available}
 @router.get('/market/candles')

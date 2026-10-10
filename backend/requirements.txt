@@ -17,4 +17,5 @@ pandas>=2,<4
 numpy>=1.26,<3
 aiosqlite>=0.20,<1
 greenlet>=3.0
+python-multipart>=0.0.9,<1
 scikit-learn>=1.4,<2

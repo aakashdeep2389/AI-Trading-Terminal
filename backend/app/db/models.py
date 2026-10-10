@@ -204,6 +204,36 @@ class UserFeedback(Base):
     )
 
 
+class JournalTrade(Base):
+    """A manually recorded real trade for the trading journal."""
+    __tablename__ = 'journal_trades'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)          # long / short
+    entry_price: Mapped[float] = mapped_column(Float, nullable=False)
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    position_size: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pnl: Mapped[float | None] = mapped_column(Float, nullable=True)            # absolute P&L
+    pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)        # % return
+    outcome: Mapped[str | None] = mapped_column(String(12), nullable=True)     # win / loss / breakeven / open
+    strategy_tag: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    timeframe: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    emotion: Mapped[str | None] = mapped_column(String(30), nullable=True)     # calm / fomo / fear / revenge
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    screenshot_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    trade_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index('ix_journal_symbol', 'symbol'),
+        Index('ix_journal_trade_date', 'trade_date'),
+        Index('ix_journal_outcome', 'outcome'),
+    )
+
+
 class PaperTrade(Base):
     """A paper (virtual) position mirrored from a promoted registry strategy."""
     __tablename__ = 'paper_trades'

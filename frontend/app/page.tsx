@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   alertNotificationSchema,
   alertSchema,
@@ -10,29 +10,68 @@ import {
 } from '../lib/schemas';
 import MarketChart from '../components/MarketChart';
 import TradingViewWidget from '../components/TradingViewWidget';
+import StrategiesView from '../components/StrategiesView';
+import TradingJournalView from '../components/TradingJournalView';
+import IndicatorMenu, { type IndicatorStates } from '../components/IndicatorMenu';
+import StatsTicker from '../components/StatsTicker';
+import AnalysisPanel from '../components/AnalysisPanel';
+import AlertsPanel from '../components/AlertsPanel';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const ALERT_CONDITION_OPTIONS: Array<{
-  value: AlertFormInput['condition_type'];
-  label: string;
-}> = [
-  { value: 'price', label: 'Price' },
-  { value: 'rsi', label: 'RSI' },
-];
+export interface AlertToast {
+  alert_id?: string;
+  symbol: string;
+  message: string;
+}
 
-export interface AlertToast { alert_id?: string; symbol: string; message: string; }
 export default function Home() {
-  const [symbol, setSymbol] = useState('XAUUSD');
-  const [alertConditionType, setAlertConditionType] = useState<AlertFormInput['condition_type']>('price');
+  const [symbol, setSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState('1m');
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [showAlertForm, setShowAlertForm] = useState(false);
   const [alertNotifications, setAlertNotifications] = useState<AlertToast[]>([]);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'tradingview'>('lightweight');
+  const [activeTab, setActiveTab] = useState<'chart' | 'strategies' | 'journal'>('chart');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (!chartContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      try {
+        await chartContainerRef.current.requestFullscreen();
+      } catch (err) {
+        console.error('Failed to enter fullscreen:', err);
+      }
+    } else {
+      try {
+        await document.exitFullscreen();
+      } catch (err) {
+        console.error('Failed to exit fullscreen:', err);
+      }
+    }
+  };
+
+  // Indicator toggles state
+  const [indicators, setIndicators] = useState<IndicatorStates>({
+    showEMA20: true,
+    showEMA50: true,
+    showEMA200: true,
+    showSupportResistance: true,
+    showPatterns: true,
+    showVolume: true,
+  });
 
   // Sync theme with localStorage or system preference on mount
   useEffect(() => {
@@ -67,65 +106,41 @@ export default function Home() {
     localStorage.setItem('app-chart-engine', engine);
   };
 
-  // Overlay toggle state with localStorage persistence
-  const [showEMA20, setShowEMA20] = useState(true);
-  const [showEMA50, setShowEMA50] = useState(true);
-  const [showEMA200, setShowEMA200] = useState(true);
-  const [showSupportResistance, setShowSupportResistance] = useState(true);
-  const [showPatterns, setShowPatterns] = useState(true);
-  const [showVolume, setShowVolume] = useState(true);
-
+  // Load indicator preferences
   useEffect(() => {
-    // Load overlay preferences from localStorage
-    const savedEMA20 = localStorage.getItem('chart-show-ema-20');
-    const savedEMA50 = localStorage.getItem('chart-show-ema-50');
-    const savedEMA200 = localStorage.getItem('chart-show-ema-200');
-    const savedSR = localStorage.getItem('chart-show-support-resistance');
-    const savedPatterns = localStorage.getItem('chart-show-patterns');
-    const savedVolume = localStorage.getItem('chart-show-volume');
+    try {
+      const savedEMA20 = localStorage.getItem('chart-show-ema-20');
+      const savedEMA50 = localStorage.getItem('chart-show-ema-50');
+      const savedEMA200 = localStorage.getItem('chart-show-ema-200');
+      const savedSR = localStorage.getItem('chart-show-support-resistance');
+      const savedPatterns = localStorage.getItem('chart-show-patterns');
+      const savedVolume = localStorage.getItem('chart-show-volume');
 
-    if (savedEMA20 !== null) setShowEMA20(JSON.parse(savedEMA20));
-    if (savedEMA50 !== null) setShowEMA50(JSON.parse(savedEMA50));
-    if (savedEMA200 !== null) setShowEMA200(JSON.parse(savedEMA200));
-    if (savedSR !== null) setShowSupportResistance(JSON.parse(savedSR));
-    const parsedPatterns = savedPatterns !== null ? JSON.parse(savedPatterns) : true;
-    setShowPatterns(parsedPatterns);
-    if (savedVolume !== null) setShowVolume(JSON.parse(savedVolume));
+      setIndicators({
+        showEMA20: savedEMA20 !== null ? JSON.parse(savedEMA20) : true,
+        showEMA50: savedEMA50 !== null ? JSON.parse(savedEMA50) : true,
+        showEMA200: savedEMA200 !== null ? JSON.parse(savedEMA200) : true,
+        showSupportResistance: savedSR !== null ? JSON.parse(savedSR) : true,
+        showPatterns: savedPatterns !== null ? JSON.parse(savedPatterns) : true,
+        showVolume: savedVolume !== null ? JSON.parse(savedVolume) : true,
+      });
+    } catch {
+      // fallback to defaults
+    }
   }, []);
 
-  const setShowEMA20State = (show: boolean) => {
-    setShowEMA20(show);
-    localStorage.setItem('chart-show-ema-20', JSON.stringify(show));
+  const handleIndicatorToggle = (key: keyof IndicatorStates, value: boolean) => {
+    setIndicators((prev) => ({ ...prev, [key]: value }));
+    const storageKeys: Record<keyof IndicatorStates, string> = {
+      showEMA20: 'chart-show-ema-20',
+      showEMA50: 'chart-show-ema-50',
+      showEMA200: 'chart-show-ema-200',
+      showSupportResistance: 'chart-show-support-resistance',
+      showPatterns: 'chart-show-patterns',
+      showVolume: 'chart-show-volume',
+    };
+    localStorage.setItem(storageKeys[key], JSON.stringify(value));
   };
-
-  const setShowEMA50State = (show: boolean) => {
-    setShowEMA50(show);
-    localStorage.setItem('chart-show-ema-50', JSON.stringify(show));
-  };
-
-  const setShowEMA200State = (show: boolean) => {
-    setShowEMA200(show);
-    localStorage.setItem('chart-show-ema-200', JSON.stringify(show));
-  };
-
-  const setShowSupportResistanceState = (show: boolean) => {
-    setShowSupportResistance(show);
-    localStorage.setItem('chart-show-support-resistance', JSON.stringify(show));
-  };
-
-  const setShowPatternsState = (show: boolean) => {
-    setShowPatterns(show);
-    localStorage.setItem('chart-show-patterns', JSON.stringify(show));
-  };
-
-  const setShowVolumeState = (show: boolean) => {
-    setShowVolume(show);
-    localStorage.setItem('chart-show-volume', JSON.stringify(show));
-  };
-
-  // Indicator configuration for the dropdown
-  // Removed unused indicatorConfigs array that was causing lint warnings.
-
 
   // Load alerts
   useEffect(() => {
@@ -145,49 +160,70 @@ export default function Home() {
 
   // WebSocket for alert notifications
   useEffect(() => {
-    const alertSocket = new WebSocket(`${API.replace(/^http/, 'ws')}/api/ws/alerts`);
+    let alertSocket: WebSocket | null = null;
+    try {
+      alertSocket = new WebSocket(`${API.replace(/^http/, 'ws')}/api/ws/alerts`);
+      alertSocket.onmessage = (event) => {
+        try {
+          const parsed = alertNotificationSchema.safeParse(JSON.parse(event.data));
+          if (!parsed.success) return;
+          const { data } = parsed.data;
+          setAlertNotifications((prev) => [data, ...prev.slice(0, 4)]);
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Alert: ${data.symbol}`, {
+              body: data.message,
+              icon: '/favicon.ico',
+            });
+          }
+        } catch {
+          // ignore malformed frame
+        }
+      };
+    } catch {
+      // ignore ws error
+    }
 
-    alertSocket.onmessage = (event) => {
-      const parsed = alertNotificationSchema.safeParse(JSON.parse(event.data));
-      if (!parsed.success) return;
-      const { data } = parsed.data;
-      setAlertNotifications(prev => [data, ...prev.slice(0, 4)]); // Keep last 5
-      // Show browser notification if permitted
-      if (Notification.permission === 'granted') {
-        new Notification(`Alert: ${data.symbol}`, {
-          body: data.message,
-          icon: '/favicon.ico'
-        });
-      }
+    return () => {
+      alertSocket?.close();
     };
-
-    return () => alertSocket.close();
   }, []);
 
   // Request notification permission
   useEffect(() => {
-    if (Notification.permission === 'default') {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
 
-  async function analyze() {
+  const analyze = useCallback(async () => {
     setLoading(true);
-    try { setAnalysis(await (await fetch(`${API}/api/analysis/${symbol}?timeframe=${timeframe}`)).json()); }
-    finally { setLoading(false); }
-  }
+    try {
+      const res = await fetch(`${API}/api/analysis/${symbol}?timeframe=${timeframe}`);
+      if (res.ok) {
+        setAnalysis(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to analyze:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol, timeframe]);
+
+  // Run initial analysis when symbol/timeframe changes
+  useEffect(() => {
+    analyze();
+  }, [analyze]);
 
   async function createAlert(alertData: AlertFormInput) {
     try {
       const response = await fetch(`${API}/api/alerts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...alertData, symbol })
+        body: JSON.stringify({ ...alertData, symbol }),
       });
       if (response.ok) {
         const newAlert = alertSchema.parse(await response.json());
-        setAlerts(prev => [newAlert, ...prev]);
-        setShowAlertForm(false);
+        setAlerts((prev) => [newAlert, ...prev]);
       }
     } catch (error) {
       console.error('Failed to create alert:', error);
@@ -199,12 +235,12 @@ export default function Home() {
       const response = await fetch(`${API}/api/alerts/${alertId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
+        body: JSON.stringify({ enabled }),
       });
       if (response.ok) {
-        setAlerts(prev => prev.map(alert =>
-          alert.id === alertId ? { ...alert, enabled } : alert
-        ));
+        setAlerts((prev) =>
+          prev.map((alert) => (alert.id === alertId ? { ...alert, enabled } : alert))
+        );
       }
     } catch (error) {
       console.error('Failed to toggle alert:', error);
@@ -214,40 +250,74 @@ export default function Home() {
   async function deleteAlert(alertId: string) {
     try {
       const response = await fetch(`${API}/api/alerts/${alertId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
       });
       if (response.ok) {
-        setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+        setAlerts((prev) => prev.filter((alert) => alert.id !== alertId));
       }
     } catch (error) {
       console.error('Failed to delete alert:', error);
     }
   }
 
-  const indicators = analysis?.indicators || {};
-  const risk = analysis?.risk || {};
   return (
     <main>
+      {/* Terminal Top Header */}
       <header className="terminal-header">
         <div className="header-brand">
-          <span className="brand-badge">TERMINAL</span>
+          <span className="brand-badge">PRO</span>
           <div>
             <h1 className="brand-title">AI Trading Platform</h1>
-            <span className="sub">BTCUSDT • XAUUSD • deterministic analytics</span>
+            <span className="sub">BTCUSDT • XAUUSD</span>
           </div>
         </div>
 
+        {/* Center Navigation Tabs */}
+        <nav className="header-nav-tabs" role="tablist" aria-label="Main Navigation">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'chart'}
+            className={`nav-tab-btn ${activeTab === 'chart' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chart')}
+          >
+            <span className="tab-icon">📈</span>
+            <span>Chart & Analysis</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'strategies'}
+            className={`nav-tab-btn ${activeTab === 'strategies' ? 'active' : ''}`}
+            onClick={() => setActiveTab('strategies')}
+          >
+            <span className="tab-icon">⚡</span>
+            <span>Strategies & Backtest</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'journal'}
+            className={`nav-tab-btn ${activeTab === 'journal' ? 'active' : ''}`}
+            onClick={() => setActiveTab('journal')}
+          >
+            <span className="tab-icon">📝</span>
+            <span>Trading Journal</span>
+          </button>
+        </nav>
+
+        {/* Header Right Controls */}
         <div className="header-controls">
           <div className="control-group">
-            {/* <span className="control-label">Symbol</span> */}
-            <div className="pills">
-              {['BTCUSDT', 'XAUUSD'].map(item => (
+            <div className="pills symbol-pills">
+              {['BTCUSDT', 'XAUUSD'].map((item) => (
                 <button
+                  key={item}
+                  type="button"
                   className={symbol === item ? 'active' : ''}
                   onClick={() => setSymbol(item)}
-                  key={item}
                 >
-                  {item}
+                  {item === 'BTCUSDT' ? '₿ BTCUSDT' : '🪙 XAUUSD'}
                 </button>
               ))}
             </div>
@@ -255,386 +325,157 @@ export default function Home() {
 
           <div className="header-divider-vertical" />
 
-          <div className="control-group">
-            {/* <span className="control-label">Theme</span> */}
-            <div className="theme-pills">
-              <button
-                type="button"
-                className={theme === 'dark' ? 'active' : ''}
-                onClick={() => setThemeMode('dark')}
-                title="Switch to dark mode"
-                aria-pressed={theme === 'dark'}
-              >
-                <span>🌙</span>
-                <span>Dark</span>
-              </button>
-              <button
-                type="button"
-                className={theme === 'light' ? 'active' : ''}
-                onClick={() => setThemeMode('light')}
-                title="Switch to light mode"
-                aria-pressed={theme === 'light'}
-              >
-                <span>☀️</span>
-                <span>Light</span>
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={() => setThemeMode(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label="Toggle theme"
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
         </div>
       </header>
 
       <div className="header-separator-line" role="separator" aria-orientation="horizontal" />
 
-      {/* Alert Notifications */}
+      {/* Floating Alert Notifications */}
       {alertNotifications.length > 0 && (
         <section className="alert-notifications">
           {alertNotifications.map((notification, index) => (
             <div key={index} className="alert-notification">
-              🚨 {notification.message}
+              🚨 <strong>{notification.symbol}</strong>: {notification.message}
             </div>
           ))}
         </section>
       )}
 
-      <section className="toolbar">
-        {['1m', '5m', '15m', '1h', '4h', '1d'].map(item =>
-          <button
-            className={timeframe === item ? 'active' : ''}
-            onClick={() => setTimeframe(item)}
-            key={item}
+      {activeTab === 'strategies' ? (
+        <StrategiesView symbol={symbol} timeframe={timeframe} />
+      ) : activeTab === 'journal' ? (
+        <TradingJournalView />
+      ) : (
+        <>
+          {/* Main Chart Card Wrapper (Supports Fullscreen Mode) */}
+          <div
+            ref={chartContainerRef}
+            className={`chart-fullscreen-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`}
           >
-            {item}
-          </button>
-        )}
-        <button onClick={analyze}>{loading ? 'Analyzing…' : 'Analyze'}</button>
-        {/* <select
-          className="alert-condition-select"
-          aria-label="Alert condition"
-          value={alertConditionType}
-          onChange={(event) => setAlertConditionType(event.target.value as AlertFormInput['condition_type'])}
-        >
-          {ALERT_CONDITION_OPTIONS.map(option => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select> */}
-        <button onClick={() => setShowAlertForm(true)}>+ Alert</button>
-      </section>
+            {/* Main Control Toolbar */}
+            <section className="chart-unified-toolbar">
+              <div className="toolbar-left-group">
+                <div className="timeframe-pills" role="group" aria-label="Timeframe selector">
+                  {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
+                    <button
+                      key={tf}
+                      type="button"
+                      className={`tf-btn ${timeframe === tf ? 'active' : ''}`}
+                      onClick={() => setTimeframe(tf)}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
 
-      <section className="chart-section">
-        <div className="chart-header">
-          <span className="chart-title">Price Chart</span>
-          <div className="pills chart-switch" role="group" aria-label="Chart engine">
-            <button
-              type="button"
-              className={chartEngine === 'lightweight' ? 'active' : ''}
-              onClick={() => setChartEngineMode('lightweight')}
-              title="Render with Lightweight Charts v5"
-              aria-pressed={chartEngine === 'lightweight'}
-            >
-              <span>📈</span>
-              <span>Lightweight</span>
-            </button>
-            <button
-              type="button"
-              className={chartEngine === 'tradingview' ? 'active' : ''}
-              onClick={() => setChartEngineMode('tradingview')}
-              title="Embed the TradingView widget"
-              aria-pressed={chartEngine === 'tradingview'}
-            >
-              <span>📊</span>
-              <span>TradingView</span>
-            </button>
-          </div>
-        </div>
+                <div className="toolbar-divider" />
 
-        {/* Chart Overlay Controls */}
-        <div className="chart-overlays" style={{ padding: '10px 14px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Indicators:</span>
-          <div className="dropdown" style={{ position: 'relative' }}>
-            <button
-              onClick={() => {
-                const menu = document.getElementById('indicator-menu');
-                if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-              }}
-              style={{ fontSize: '12px', padding: '6px 10px' }}
-            >
-              Manage Indicators ▾
-            </button>
-            <div
-              id="indicator-menu"
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                backgroundColor: 'var(--bg-color)',
-                border: '1px solid var(--border-color)',
-                padding: '8px',
-                zIndex: 10,
-                display: 'none',
-                minWidth: '150px'
-              }}
-            >
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                <input type="checkbox" checked={showEMA20} onChange={(e) => setShowEMA20State(e.target.checked)} />
-                EMA 20
-              </label>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                <input type="checkbox" checked={showEMA50} onChange={(e) => setShowEMA50State(e.target.checked)} />
-                EMA 50
-              </label>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                <input type="checkbox" checked={showEMA200} onChange={(e) => setShowEMA200State(e.target.checked)} />
-                EMA 200
-              </label>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                <input type="checkbox" checked={showSupportResistance} onChange={(e) => setShowSupportResistanceState(e.target.checked)} />
-                S/R
-              </label>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                <input type="checkbox" checked={showPatterns} onChange={(e) => setShowPatternsState(e.target.checked)} />
-                Patterns
-              </label>
-              <label style={{ display: 'block', fontSize: '12px' }}>
-                <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolumeState(e.target.checked)} />
-                Volume
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div className="chart-frame">
-          {chartEngine === 'tradingview' ? (
-            <TradingViewWidget
-              symbol={symbol}
-              timeframe={timeframe}
-              theme={theme}
-            />
-          ) : (
-            <MarketChart
-              symbol={symbol}
-              timeframe={timeframe}
-              theme={theme}
-              showEMA20={showEMA20}
-              showEMA50={showEMA50}
-              showEMA200={showEMA200}
-              showSupportResistance={showSupportResistance}
-              showPatterns={showPatterns}
-              showVolume={showVolume}
-            />
-          )}
-        </div>
-      </section>
-
-      <section className="stats">
-        <Card t="Price" v={analysis ? Number(analysis.price).toFixed(2) : '—'} />
-        <Card t="RSI 14" v={indicators.rsi14 ? indicators.rsi14.toFixed(2) : '—'} />
-        <Card t="ATR 14" v={indicators.atr14 ? indicators.atr14.toFixed(2) : '—'} />
-        <Card t="Trend" v={indicators.trend || '—'} />
-        <Card t="Risk" v={risk.verdict || '—'} />
-      </section>
-
-      <section className="grid">
-        <div className="panel">
-          <div className="title">AI Analysis</div>
-          {analysis ? (
-            <>
-              {/* Symbol & Timeframe header */}
-              <div className="analysis-header">
-                <strong>{symbol}</strong> 
-                · <span>{timeframe}</span>
+                {/* Indicator Controls Dropdown */}
+                <IndicatorMenu
+                  indicators={indicators}
+                  onToggle={handleIndicatorToggle}
+                />
               </div>
 
-              {/* Trend rationale */}
-              {indicators.trend_reason && (
-                <div className="analysis-section">
-                  <small className="analysis-section-label">Trend</small>
-                  <p>{indicators.trend_reason}</p>
+              <div className="toolbar-right-group">
+                {/* Chart Engine Switcher */}
+                <div className="engine-switcher-pills" role="group" aria-label="Chart renderer">
+                  <button
+                    type="button"
+                    className={chartEngine === 'lightweight' ? 'active' : ''}
+                    onClick={() => setChartEngineMode('lightweight')}
+                    title="Lightweight Charts v5 (Native High-Speed)"
+                  >
+                    <span>⚡ Lightweight</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={chartEngine === 'tradingview' ? 'active' : ''}
+                    onClick={() => setChartEngineMode('tradingview')}
+                    title="TradingView Advanced Widget"
+                  >
+                    <span>📊 TradingView</span>
+                  </button>
                 </div>
-              )}
 
-              <div className={`verdict ${risk.verdict}`}>{risk.verdict?.toUpperCase()}</div>
-              <p>Direction: <b>{risk.direction}</b></p>
-              <p>Entry: <b>{risk.entry?.toFixed(2) || '—'}</b></p>
-              <p>Stop: <b>{risk.stop_loss?.toFixed(2) || '—'}</b></p>
-              <p>Target: <b>{risk.target?.toFixed(2) || '—'}</b></p>
+                <button
+                  type="button"
+                  className="analyze-pipeline-btn"
+                  onClick={analyze}
+                  disabled={loading}
+                >
+                  {loading ? 'Analyzing…' : '↻ Analyze'}
+                </button>
 
-              {/* Trade entry basis */}
-              {risk.reason && (
-                <div className="analysis-section">
-                  <small className="analysis-section-label">Entry Basis</small>
-                  <p>{risk.reason}</p>
-                </div>
-              )}
+                <button
+                  type="button"
+                  className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`}
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Full Screen View'}
+                  aria-label="Toggle Fullscreen"
+                >
+                  <span>{isFullscreen ? '🗗 Exit' : '⛶ Fullscreen'}</span>
+                </button>
+              </div>
+            </section>
 
-              <p>Patterns: {(analysis.patterns || []).map((pattern) => pattern.name).join(', ') || 'None detected'}</p>
-              <small>Python is the numerical source of truth. AI narration must only explain computed values.</small>
-            </>
-          ) : (
-            <p className="muted">Press Analyze to run the deterministic pipeline.</p>
-          )}
-        </div>
-
-        <div className="panel alerts">
-          <div className="title">
-            Alerts ({alerts.filter(a => a.enabled).length} active)
-          </div>
-          <div className="alert-list">
-            {alerts.length === 0 ? (
-              <p className="muted">No alerts configured for {symbol}</p>
-            ) : (
-              alerts.map(alert => (
-                <AlertItem
-                  key={alert.id}
-                  alert={alert}
-                  onToggle={toggleAlert}
-                  onDelete={deleteAlert}
+            {/* Chart Frame Section */}
+            <section className="chart-viewport-card">
+              {chartEngine === 'tradingview' ? (
+                <TradingViewWidget
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  theme={theme}
                 />
-              ))
-            )}
+              ) : (
+                <MarketChart
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  theme={theme}
+                  showEMA20={indicators.showEMA20}
+                  showEMA50={indicators.showEMA50}
+                  showEMA200={indicators.showEMA200}
+                  showSupportResistance={indicators.showSupportResistance}
+                  showPatterns={indicators.showPatterns}
+                  showVolume={indicators.showVolume}
+                />
+              )}
+            </section>
           </div>
-        </div>
-      </section>
 
-      {showAlertForm && (
-        <AlertForm
-          onSubmit={createAlert}
-          onCancel={() => setShowAlertForm(false)}
-          currentPrice={analysis?.price}
-        />
+          {/* Quick Metrics Ticker */}
+          <StatsTicker analysis={analysis} />
+
+          {/* 2-Column Responsive Dashboard Grid: AI Analysis + Alerts */}
+          <section className="dashboard-analysis-alerts-grid">
+            <AnalysisPanel
+              symbol={symbol}
+              timeframe={timeframe}
+              analysis={analysis}
+              loading={loading}
+              onRefresh={analyze}
+            />
+
+            <AlertsPanel
+              symbol={symbol}
+              alerts={alerts}
+              currentPrice={analysis?.price}
+              onToggle={toggleAlert}
+              onDelete={deleteAlert}
+              onCreate={createAlert}
+            />
+          </section>
+        </>
       )}
     </main>
-  );
-}
-
-function Card({ t, v }: { t: string; v: string }) {
-  return (
-    <div className="card">
-      <small>{t}</small>
-      <strong>{v}</strong>
-    </div>
-  );
-}
-
-function AlertItem({
-  alert,
-  onToggle,
-  onDelete
-}: {
-  alert: Alert;
-  onToggle: (id: string, enabled: boolean) => void;
-  onDelete: (id: string) => void;
-}) {
-  return (
-    <div className={`alert-item ${alert.enabled ? 'enabled' : 'disabled'}`}>
-      <div className="alert-info">
-        <strong>{alert.name}</strong>
-        <span className="alert-details">
-          {alert.condition_type} {alert.direction} {alert.condition_value}
-        </span>
-        {alert.fired_count > 0 && (
-          <span className="fired-count">Fired {alert.fired_count}x</span>
-        )}
-      </div>
-      <div className="alert-actions">
-        <button
-          onClick={() => onToggle(alert.id, !alert.enabled)}
-          className={alert.enabled ? 'disable' : 'enable'}
-        >
-          {alert.enabled ? '⏸️' : '▶️'}
-        </button>
-        <button onClick={() => onDelete(alert.id)} className="delete">
-          🗑️
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function AlertForm({
-  onSubmit,
-  onCancel,
-  currentPrice
-}: {
-  onSubmit: (data: AlertFormInput) => void;
-  onCancel: () => void;
-  currentPrice?: number;
-}) {
-  const [formData, setFormData] = useState<AlertFormInput>({
-    name: '',
-    condition_type: 'price',
-    condition_value: currentPrice || 0,
-    direction: 'up',
-    timeframe: '1h',
-    notification_channels: ['browser']
-  });
-
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <div className="modal-header">
-          <h3>Create Alert</h3>
-          <button onClick={onCancel}>×</button>
-        </div>
-        <form onSubmit={handleSubmit} className="alert-form">
-          <div className="form-group">
-            <label>Alert Name</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder="e.g., BTC Price Alert"
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Condition</label>
-            <select
-              value={formData.condition_type}
-              onChange={(e) => setFormData({...formData, condition_type: e.target.value as AlertFormInput['condition_type']})}
-            >
-              <option value="price">Price</option>
-              <option value="rsi">RSI</option>
-              <option value="macd_signal">MACD Signal</option>
-            </select>
-          </div>
-
-          <div className="form-row">
-            <div className="form-group">
-              <label>Direction</label>
-              <select
-                value={formData.direction}
-                onChange={(e) => setFormData({...formData, direction: e.target.value as AlertFormInput['direction']})}
-              >
-                <option value="up">Above</option>
-                <option value="down">Below</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Value</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.condition_value}
-                onChange={(e) => setFormData({...formData, condition_value: parseFloat(e.target.value)})}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="form-actions">
-            <button type="button" onClick={onCancel}>Cancel</button>
-            <button type="submit">Create Alert</button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
