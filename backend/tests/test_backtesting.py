@@ -15,3 +15,30 @@ def test_entry_filters_reduce_trades():
  r2=backtest(c,{'fast':2,'slow':3, 'rsi_buy_below': 1})
  assert len(r1['trades']) > 0
  assert len(r2['trades']) == 0
+
+def test_backtest_with_bollinger_bands():
+    prices = [100.0] * 30 + [80.0, 81.0, 82.0] + [100.0] * 20
+    candles = [Candle(time=i, open=p, high=p+1, low=p-1, close=p, volume=10) for i, p in enumerate(prices)]
+    strategy = {
+        'fast': 2,
+        'slow': 5,
+        'custom_indicators': [
+            {'type': 'bollinger_bands', 'params': {'period': 20, 'num_std': 2.0, 'signal': 'bounce_lower'}}
+        ]
+    }
+    result = backtest(candles, strategy)
+    assert 'trades' in result
+
+def test_backtest_with_fibonacci_pivots():
+    prices = [10.0] * 20 + [12.0, 14.0, 16.0] + [20.0] * 20
+    candles = [Candle(time=i, open=p, high=p+1, low=p-1, close=p, volume=10) for i, p in enumerate(prices)]
+    strategy = {
+        'fast': 2,
+        'slow': 5,
+        'custom_indicators': [
+            {'type': 'fibonacci_pivots', 'params': {'signal': 'above_pivot', 'lookback': 10}}
+        ]
+    }
+    result = backtest(candles, strategy)
+    assert 'trades' in result
+

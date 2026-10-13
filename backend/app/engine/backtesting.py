@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import math, statistics
-from .indicators import atr, ema, rsi as calculate_rsi
+from .indicators import atr, ema, rsi as calculate_rsi, bollinger_bands, fibonacci_pivots
 
 @dataclass
 class BacktestResult:
@@ -27,12 +27,76 @@ def backtest(candles, strategy, initial_capital=10000.0):
     if price_above_ema is not None:
         ema_for_filter = ema(closes, price_above_ema)
 
+    # Parse custom indicators
+    custom_indicators = strategy.get('custom_indicators') or []
+    bb_config = None
+    fib_config = None
+    for ind in custom_indicators:
+        itype = getattr(ind, 'type', None) or (ind.get('type') if isinstance(ind, dict) else None)
+        iparams = getattr(ind, 'params', None) or (ind.get('params') if isinstance(ind, dict) else {})
+        if itype == 'bollinger_bands':
+            bb_config = iparams or {}
+        elif itype == 'fibonacci_pivots':
+            fib_config = iparams or {}
+
+    bb_bands = None
+    if bb_config is not None:
+        bb_period = int(bb_config.get('period', 20))
+        bb_num_std = float(bb_config.get('num_std', 2.0))
+        bb_bands = bollinger_bands(closes, period=bb_period, num_std=bb_num_std)
+
     equity, curve, trades, next_free = initial_capital, [initial_capital], [], max(fast, slow)
     for signal_index in range(max(fast, slow), len(candles) - 1):
         if signal_index < next_free or None in (ef[signal_index], es[signal_index], ef[signal_index - 1], es[signal_index - 1], atr_values[signal_index]):
             curve.append(equity); continue
         side = 1 if ef[signal_index] > es[signal_index] and ef[signal_index - 1] <= es[signal_index - 1] else -1 if ef[signal_index] < es[signal_index] and ef[signal_index - 1] >= es[signal_index - 1] else 0
         if not side: curve.append(equity); continue
+
+        # Apply custom indicators filters
+        if bb_config is not None and bb_bands is not None:
+            if bb_bands['lower'][signal_index] is None or bb_bands['upper'][signal_index] is None:
+                curve.append(equity)
+                continue
+            bb_sig = bb_config.get('signal', 'bounce_lower')
+            if side == 1:
+                if bb_sig == 'bounce_lower':
+                    touched_lower = (lows[signal_index] <= bb_bands['lower'][signal_index] or
+                                     (signal_index > 0 and lows[signal_index - 1] <= bb_bands['lower'][signal_index - 1]))
+                    if not touched_lower and closes[signal_index] > bb_bands['middle'][signal_index]:
+                        curve.append(equity)
+                        continue
+                elif bb_sig == 'below_middle':
+                    if closes[signal_index] > bb_bands['middle'][signal_index]:
+                        curve.append(equity)
+                        continue
+            elif side == -1:
+                if bb_sig == 'bounce_upper':
+                    touched_upper = (highs[signal_index] >= bb_bands['upper'][signal_index] or
+                                     (signal_index > 0 and highs[signal_index - 1] >= bb_bands['upper'][signal_index - 1]))
+                    if not touched_upper and closes[signal_index] < bb_bands['middle'][signal_index]:
+                        curve.append(equity)
+                        continue
+
+        if fib_config is not None:
+            lookback = int(fib_config.get('lookback', 20))
+            fib_sig = fib_config.get('signal', 'above_pivot')
+            window_candles = candles[max(0, signal_index - lookback):signal_index]
+            if len(window_candles) > 0:
+                h = max(c.high for c in window_candles)
+                l = min(c.low for c in window_candles)
+                c_prev = window_candles[-1].close
+                pivots = fibonacci_pivots(h, l, c_prev)
+                if side == 1:
+                    if fib_sig == 'above_pivot' and closes[signal_index] < pivots['pivot']:
+                        curve.append(equity)
+                        continue
+                    elif fib_sig == 'near_support' and closes[signal_index] < pivots['s1']:
+                        curve.append(equity)
+                        continue
+                elif side == -1:
+                    if fib_sig == 'below_pivot' and closes[signal_index] > pivots['pivot']:
+                        curve.append(equity)
+                        continue
 
         # Apply additional entry filters if specified
         if side == 1:  # Long entry
