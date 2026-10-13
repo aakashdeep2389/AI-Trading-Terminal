@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 from typing import Sequence
 
 def _validate(values, period):
@@ -61,6 +62,33 @@ def support_resistance(candles, lookback=120, tolerance=0.003):
         if found: found['prices'].append(p); found['price']=sum(found['prices'])/len(found['prices']); found['touches']+=1
         else: clusters.append({'kind':kind,'price':p,'touches':1,'prices':[p]})
     return [{'kind':x['kind'],'price':x['price'],'touches':x['touches']} for x in sorted(clusters,key=lambda x:-x['touches'])[:10]]
+
+def bollinger_bands(values: Sequence[float], period: int = 20, num_std: float = 2.0):
+    _validate(values, period)
+    middle = sma(values, period)
+    upper = [None] * len(values)
+    lower = [None] * len(values)
+    for i in range(period - 1, len(values)):
+        window = values[i - period + 1 : i + 1]
+        mean = middle[i]
+        variance = sum((x - mean) ** 2 for x in window) / period
+        std = math.sqrt(variance)
+        upper[i] = mean + num_std * std
+        lower[i] = mean - num_std * std
+    return {'upper': upper, 'middle': middle, 'lower': lower}
+
+def fibonacci_pivots(high: float, low: float, close: float) -> dict:
+    pivot = (high + low + close) / 3.0
+    rng = high - low
+    return {
+        'pivot': pivot,
+        'r1': pivot + 0.382 * rng,
+        'r2': pivot + 0.618 * rng,
+        'r3': pivot + 1.000 * rng,
+        's1': pivot - 0.382 * rng,
+        's2': pivot - 0.618 * rng,
+        's3': pivot - 1.000 * rng,
+    }
 
 def ema_series(candles, periods=(20, 50, 200)):
     """
