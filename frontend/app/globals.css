@@ -1222,6 +1222,131 @@ main {
 .run-backtest-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 22px rgba(0,229,160,0.28); }
 .run-backtest-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Strategy Form Sub-Tabs & Advanced Settings */
+.strategy-tab-nav {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 14px;
+  background: var(--bg-surface);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.strategy-tab-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  font-family: 'Inter', sans-serif;
+  text-align: center;
+}
+
+.strategy-tab-btn:hover {
+  color: var(--text-body);
+  background: var(--btn-hover-bg);
+}
+
+.strategy-tab-btn.active {
+  color: var(--accent-cyan);
+  background: var(--btn-active-bg);
+  border: 1px solid var(--btn-active-border);
+}
+
+.config-section-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-family: 'JetBrains Mono', monospace;
+  margin: 10px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+}
+
+.condition-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-inline-add {
+  padding: 8px 14px;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--accent-cyan);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.btn-inline-add:hover {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-border);
+}
+
+.badge-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.badge-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text-body);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.badge-tag-remove {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: bold;
+}
+
+.badge-tag-remove:hover {
+  color: var(--accent-red);
+}
+
 .strategy-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-bottom: 14px; }
 
 .stat-box {

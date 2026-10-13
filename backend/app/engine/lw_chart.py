@@ -100,6 +100,7 @@ def build_chart_config(
     theme: str = "dark",
     ema_series: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     support_resistance_levels: Optional[List[Dict[str, Any]]] = None,
+    symbol: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Build the ``charts`` config list that renderLightweightCharts expects.
@@ -180,11 +181,9 @@ def build_chart_config(
                 })
 
     # --- Volume histogram ---
-    # Skip the volume series entirely when the provider reports no
-    # volume data (e.g. Twelve Data does not return volume for
-    # XAU/USD). Rendering all-zero histograms looks like a dummy
-    # chart and misleads the user about genuine market activity.
-    if show_volume and not _all_zero_volume(df):
+    # User-requested: Remove volume for XAUUSD or when zero.
+    # The UI now controls volume visibility explicitly via ``show_volume``.
+    if show_volume and not _all_zero_volume(df) and (symbol != "XAUUSD" if symbol else True):
         series.append({
             "type": "Histogram",
             "data": _volume_series(df),

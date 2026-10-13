@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -12,7 +12,6 @@ import {
   type SeriesDefinition,
   type SeriesType,
   type DeepPartial,
-  type ChartOptions,
   type CandlestickData,
   type LineData,
   type HistogramData,
@@ -79,7 +78,33 @@ export default function MarketChart({
 }: MarketChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<{ series: ISeriesApi<SeriesType>; type: BackendSeries['type']; kind?: string }[]>([]);
   const lastCandleTimeRef = useRef<number | null>(null);
+
+  const fetchConfig = useCallback(async () => {
+    const params = new URLSearchParams({
+      symbol,
+      timeframe,
+      chart_type: 'candlestick',
+      show_emas_20: showEMA20 !== undefined ? String(showEMA20) : 'true',
+      show_emas_50: showEMA50 !== undefined ? String(showEMA50) : 'true',
+      show_emas_200: showEMA200 !== undefined ? String(showEMA200) : 'true',
+      show_volume: showVolume !== undefined ? String(showVolume) : 'true',
+      show_patterns: showPatterns !== undefined ? String(showPatterns) : 'true',
+      show_support_resistance: showSupportResistance !== undefined ? String(showSupportResistance) : 'true',
+      refresh: 'true',
+      theme,
+    });
+    try {
+      const response = await fetch(`${API}/api/chart/config?${params}`);
+      if (!response.ok) throw new Error(`chart/config ${response.status}`);
+      const body = await response.json();
+      return body?.config?.[0] ?? null;
+    } catch (error) {
+      console.error('[MarketChart] failed to load config:', error);
+      return null;
+    }
+  }, [symbol, timeframe, showEMA20, showEMA50, showEMA200, showVolume, showPatterns, showSupportResistance, theme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -91,33 +116,7 @@ export default function MarketChart({
       const host = containerRef.current;
       if (!host || disposed) return;
 
-      // 1. Fetch the pre-computed render config from the backend.
-      const params = new URLSearchParams({
-        symbol,
-        timeframe,
-        chart_type: 'candlestick',
-        show_emas_20: showEMA20 !== undefined ? String(showEMA20) : 'true',
-        show_emas_50: showEMA50 !== undefined ? String(showEMA50) : 'true',
-        show_emas_200: showEMA200 !== undefined ? String(showEMA200) : 'true',
-        show_volume: showVolume !== undefined ? String(showVolume) : 'true',
-        show_patterns: showPatterns !== undefined ? String(showPatterns) : 'true',
-        show_support_resistance: showSupportResistance !== undefined ? String(showSupportResistance) : 'true',
-        refresh: 'true',
-        theme,
-      });
-
-      let config: { chart?: DeepPartial<ChartOptions>; series?: BackendSeries[] } | null = null;
-      try {
-        const response = await fetch(`${API}/api/chart/config?${params}`);
-        if (!response.ok) throw new Error(`chart/config ${response.status}`);
-        const body = await response.json();
-        // Backend returns {"config": [{"chart": ..., "series": [...]}]}
-        config = body?.config?.[0] ?? null;
-        console.log('[MarketChart] config:', config);
-      } catch (error) {
-        console.error('[MarketChart] failed to load config:', error);
-        return;
-      }
+      const config = await fetchConfig();
       if (disposed || !config) return;
 
       // 2. Create the chart.
@@ -133,21 +132,13 @@ export default function MarketChart({
       chartRef.current = chart;
 
       // 3. Add each series from the backend config.
-      const alive: { series: ISeriesApi<SeriesType>; type: BackendSeries['type'] }[] = [];
-      const disabledSeriesTypes = new Set<string>();
-
-      // Determine which series types to hide based on overlay toggles.
-      if (!showEMA20 && !showEMA50 && !showEMA200) { disabledSeriesTypes.add('Line'); }
-      if (!showVolume) { disabledSeriesTypes.add('Histogram'); }
-      if (!showPatterns) { /* markers will be skipped below */ }
-      if (!showSupportResistance) { disabledSeriesTypes.add('SRLine'); }
+      const alive: typeof seriesRef.current = [];
 
       for (const s of config.series ?? []) {
         let definition: SeriesDefinition<SeriesType> | null = null;
         let series: ISeriesApi<SeriesType> | null = null;
 
         // Skip series types that are toggled off.
-        // Note: For 'Line' types, individual filtering happens below based on kind/label.
         if (s.type === 'Histogram' && !showVolume) continue;
         if (s.type === 'Line' && s.kind === 'SRLine' && !showSupportResistance) continue;
 
@@ -155,19 +146,14 @@ export default function MarketChart({
           definition = CandlestickSeries;
           series = chart.addSeries(definition, s.options as DeepPartial<CandlestickSeriesOptions>);
           if (s.data?.length) series.setData(s.data as CandlestickData<Time>[]);
-          // Pattern markers: only show if toggled on.
           if (showPatterns && s.markers?.length) createSeriesMarkers(series, s.markers as SeriesMarker<Time>[]);
         } else if (s.type === 'Line') {
-          // Distinguish EMA lines from S/R lines using the backend-provided 'kind'.
           const lineKind = (s as BackendSeries & { kind?: string }).kind;
           const isSRLine = lineKind === 'SRLine';
           const isEMALine = !isSRLine;
 
           if (isSRLine && !showSupportResistance) continue;
           if (isEMALine) {
-            // Check specific EMA toggle based on color or another property
-            // Assuming EMA colors match EMA_COLORS in lw_chart.py:
-            // 20: #2196F3, 50: #FF9800, 200: #9C27B0
             const color = (s.options as unknown as LineSeriesOptions)?.color;
             if (color === '#2196F3' && !showEMA20) continue;
             if (color === '#FF9800' && !showEMA50) continue;
@@ -184,47 +170,53 @@ export default function MarketChart({
           if (s.priceScale) series.priceScale().applyOptions(s.priceScale as never);
         }
 
-        if (definition && series) alive.push({ series, type: s.type });
+        if (definition && series) alive.push({ series, type: s.type, kind: s.kind });
       }
-
-      const initialCandles = config.series?.find((s) => s.type === 'Candlestick')?.data as Array<{ time?: number | string }> | undefined;
+      seriesRef.current = alive;
+      
+      const initialCandles = config.series?.find((s: BackendSeries) => s.type === 'Candlestick')?.data as Array<{ time?: number | string }> | undefined;
       if (initialCandles?.length) {
-        const lastInitialTime = Number(initialCandles[initialCandles.length - 1]?.time);
-        if (Number.isFinite(lastInitialTime)) {
-          lastCandleTimeRef.current = lastInitialTime;
-        }
+        lastCandleTimeRef.current = Number(initialCandles[initialCandles.length - 1]?.time);
       }
 
-      // Pin the right edge to "now".
       chart.timeScale().scrollToRealTime();
 
-      // 4. Live updates: incremental ws -> series.update(), never a re-fetch.
+      // 4. Live updates
       const wsUrl = API.replace(/^http/, 'ws');
       ws = new WebSocket(`${wsUrl}/api/ws/market/${symbol}?timeframe=${timeframe}`);
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         let message: { type?: string; data?: StreamCandle } | null = null;
         try {
           message = JSON.parse(event.data as string);
-        } catch {
-          return; // ignore malformed frames
-        }
-        if (message?.type !== 'candle' || !message.data) return; // heartbeat/ticks ignored
+        } catch { return; }
+        if (message?.type !== 'candle' || !message.data) return;
 
         const { time, open, high, low, close, volume } = message.data;
         const ts = Number(time) as UTCTimestamp;
         if (!Number.isFinite(ts)) return;
 
         const lastSeenTime = lastCandleTimeRef.current;
-        if (lastSeenTime !== null && ts < lastSeenTime) {
-          console.warn('[MarketChart] Ignoring stale candle update.', { lastSeenTime, ts });
-          return;
+
+        // If new candle closed, refresh indicators
+        if (lastSeenTime !== null && ts > lastSeenTime) {
+            const newConfig = await fetchConfig();
+            if (newConfig) {
+                // Update existing series
+                for (const s of newConfig.series ?? []) {
+                    const existing = seriesRef.current.find(a => a.type === s.type && (a.kind === s.kind || (!a.kind && !s.kind)));
+                    if (existing && s.data?.length) {
+                    existing.series.setData(s.data as (CandlestickData<Time> | LineData<Time> | HistogramData<Time>)[]);
+                    }
+                }
+            }
         }
+        
         lastCandleTimeRef.current = ts;
 
-        const candleSeries = alive.find((a) => a.type === 'Candlestick');
+        const candleSeries = seriesRef.current.find((a) => a.type === 'Candlestick');
         if (candleSeries) candleSeries.series.update({ time: ts, open, high, low, close });
 
-        const volumeSeries = alive.find((a) => a.type === 'Histogram');
+        const volumeSeries = seriesRef.current.find((a) => a.type === 'Histogram');
         if (volumeSeries) {
           volumeSeries.series.update({
             time: ts,
@@ -233,20 +225,15 @@ export default function MarketChart({
           });
         }
       };
-      ws.onerror = (event) => console.error('[MarketChart] WebSocket error:', event);
-      ws.onopen = () => console.log('[MarketChart] WebSocket opened.');
-      ws.onclose = () => console.log('[MarketChart] WebSocket closed.');
     }
-
     mount();
-
     return () => {
       disposed = true;
       ws?.close();
       chartRef.current?.remove();
       chartRef.current = null;
     };
-  }, [symbol, timeframe, theme, showEMA20, showEMA50, showEMA200, showSupportResistance, showPatterns, showVolume]);
+  }, [fetchConfig, symbol, timeframe]);
 
   return <div className="market-chart" ref={containerRef} aria-label={`${symbol} ${timeframe} chart`} />;
 }

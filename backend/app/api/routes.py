@@ -7,6 +7,7 @@ from ..ai.agent import ChatRequest, narrate, run_chat, analyze
 from ..engine.lw_chart import build_chart_config
 from ..engine.backtesting import backtest
 from ..strategies.service import parse_strategy_intent, validate_strategy
+from ..strategies.schemas import StrategySchema
 from ..market.realtime import hub
 from ..news.service import get_news
 from ..alerts.service import alerts, AlertCreate, AlertUpdate
@@ -46,8 +47,10 @@ async def ai_narration(symbol: str, timeframe: str = '1h'):
 async def ai_chat(request: ChatRequest):
     return await run_chat(request, await get_candles(request.symbol, request.timeframe, 300))
 @router.post('/backtests')
-async def run_backtest(payload:dict):
-    s=validate_strategy(payload.get('strategy',{})); d=await get_candles(payload.get('symbol','BTCUSDT'),payload.get('timeframe','1h'),min(int(payload.get('limit',1000)),5000)); return {'strategy':s.model_dump(),'result':backtest(d,s.model_dump())}
+async def run_backtest(payload: dict):
+    s = validate_strategy(payload.get('strategy', {}))
+    d = await get_candles(payload.get('symbol', 'BTCUSDT'), payload.get('timeframe', '1h'), min(int(payload.get('limit', 1000)), 5000))
+    return {'strategy': s.model_dump(), 'result': backtest(d, s.model_dump())}
 @router.get('/chart/config')
 async def chart_config(
     symbol: str = 'BTCUSDT',
@@ -88,11 +91,12 @@ async def chart_config(
         theme=theme,
         ema_series=ema_series,
         support_resistance_levels=indicators.get('support_resistance', []),
+        symbol=symbol,
     )
     return {'config': cfg}
 @router.post('/strategies/parse')
-async def parse_strategy(payload: dict):
-    return parse_strategy_intent(str(payload.get('text', '')), str(payload.get('name', 'Natural-language strategy'))).model_dump()
+async def parse_strategy(payload: dict) -> StrategySchema:
+    return parse_strategy_intent(str(payload.get('text', '')), str(payload.get('name', 'Natural-language strategy')))
 
 # Alert Management Endpoints
 @router.post('/alerts')

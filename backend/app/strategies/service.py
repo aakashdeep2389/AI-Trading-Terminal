@@ -1,31 +1,52 @@
 """Validated declarative strategies. Generated Python is never accepted or executed."""
 from __future__ import annotations
 import re
-from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List, Dict, Any, Literal
+from .schemas import (
+    UniversalExit,
+    OvernightProtection,
+    PriceExecution,
+    TradingStopLoss,
+    AdvancedSettings,
+    MarketplaceSettings,
+    StrategySchema,
+    Strategy,
+)
 
-class Strategy(BaseModel):
-    name: str = Field(default='EMA Crossover', min_length=1, max_length=100)
-    fast: int = Field(20, ge=2, le=200)
-    slow: int = Field(50, ge=3, le=400)
-    risk_pct: float = Field(1, gt=0, le=5)
-    rsi_buy_below: float | None = Field(default=None, gt=0, lt=100)
-    price_above_ema: int | None = Field(default=None, ge=2, le=400)
-    stop_atr_multiple: float = Field(default=2, gt=0, le=10)
+def validate_strategy(data: Any) -> StrategySchema:
+    return StrategySchema.model_validate(data)
 
-    @model_validator(mode='after')
-    def periods_are_valid(self):
-        if self.fast >= self.slow: raise ValueError('fast period must be less than slow period')
-        return self
-
-def validate_strategy(data): return Strategy.model_validate(data)
-
-def parse_strategy_intent(text: str, name: str = 'Natural-language strategy') -> Strategy:
+def parse_strategy_intent(text: str, name: str = 'Natural-language strategy') -> StrategySchema:
     """Small deterministic parser used when an LLM structured-output provider is unavailable."""
-    lower = text.lower(); values: dict = {'name': name}
+    lower = text.lower()
+    values: dict = {'name': name}
+
+    # Match fast/slow EMA periods if specified in text (e.g. "EMA crossover strategy with 20 and 50 period")
+    ema_match = re.search(r'(?:ema|period|crossover).*?(\d+)\s*(?:and|/|,)\s*(\d+)', lower)
+    if ema_match:
+        f, s = int(ema_match.group(1)), int(ema_match.group(2))
+        if f < s:
+            values['fast'] = f
+            values['slow'] = s
+
     rsi = re.search(r'rsi\s*(?:<|below)\s*(\d+(?:\.\d+)?)', lower)
     above = re.search(r'(?:above|over)\s*ema\s*(\d+)', lower)
     stop = re.search(r'(\d+(?:\.\d+)?)\s*atr\s*(?:stop|loss)', lower)
-    if rsi: values['rsi_buy_below'] = float(rsi.group(1))
-    if above: values['price_above_ema'] = int(above.group(1))
-    if stop: values['stop_atr_multiple'] = float(stop.group(1))
+    if rsi:
+        values['rsi_buy_below'] = float(rsi.group(1))
+    if above:
+        values['price_above_ema'] = int(above.group(1))
+    if stop:
+        values['stop_atr_multiple'] = float(stop.group(1))
+
+    # Example: handling universal_exit description
+    universal_exit_desc = re.search(r'exit strategy:\s*(.*)', lower)
+    if universal_exit_desc:
+        values['universal_exit'] = {'description': universal_exit_desc.group(1).strip()}
+
+    # Example: handling advanced_settings.price_execution
+    price_exec_match = re.search(r'price execution:\s*(.*)', lower)
+    if price_exec_match:
+        values['advanced_settings'] = {'price_execution': {'initial_price': price_exec_match.group(1).strip().capitalize()}}
+
     return validate_strategy(values)
