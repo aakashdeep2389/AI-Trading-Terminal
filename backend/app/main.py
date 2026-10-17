@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ from .core.observability import configure_logging, ObservabilityMiddleware
 from .db.database import init_db
 from .market.stream import stream
 from .alerts.processor import processor
+from .engine.paper_engine import engine as paper_engine # Import the paper engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,7 +21,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     await stream.start()
     await processor.start()
+    if os.getenv("ENV") != "test":
+        await paper_engine.start()
     yield
+    if os.getenv("ENV") != "test":
+        await paper_engine.stop()
     await processor.stop()
     await stream.stop()
 
