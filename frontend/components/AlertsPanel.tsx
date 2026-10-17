@@ -23,13 +23,14 @@ export default function AlertsPanel({
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [showModal, setShowModal] = useState(false);
 
-  const filteredAlerts = alerts.filter((a) => {
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+  const filteredAlerts = safeAlerts.filter((a) => {
     if (filter === 'active') return a.enabled;
     if (filter === 'inactive') return !a.enabled;
     return true;
   });
 
-  const activeCount = alerts.filter((a) => a.enabled).length;
+  const activeCount = safeAlerts.filter((a) => a.enabled).length;
 
   return (
     <div className="panel alerts-panel-wrapper">
@@ -54,7 +55,7 @@ export default function AlertsPanel({
           className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
           onClick={() => setFilter('all')}
         >
-          All ({alerts.length})
+          All ({Array.isArray(alerts) ? alerts.length : 0})
         </button>
         <button
           type="button"
@@ -68,7 +69,7 @@ export default function AlertsPanel({
           className={`filter-btn ${filter === 'inactive' ? 'active' : ''}`}
           onClick={() => setFilter('inactive')}
         >
-          Paused ({alerts.length - activeCount})
+          Paused ({Array.isArray(alerts) ? alerts.length : 0} - {activeCount})
         </button>
       </div>
 

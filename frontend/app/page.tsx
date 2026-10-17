@@ -12,6 +12,7 @@ import MarketChart from '../components/MarketChart';
 import TradingViewWidget from '../components/TradingViewWidget';
 import StrategiesView from '../components/StrategiesView';
 import TradingJournalView from '../components/TradingJournalView';
+import TestingView from '../components/TestingView';
 import IndicatorMenu, { type IndicatorStates } from '../components/IndicatorMenu';
 import StatsTicker from '../components/StatsTicker';
 import AnalysisPanel from '../components/AnalysisPanel';
@@ -34,7 +35,7 @@ export default function Home() {
   const [alertNotifications, setAlertNotifications] = useState<AlertToast[]>([]);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'tradingview'>('lightweight');
-  const [activeTab, setActiveTab] = useState<'chart' | 'strategies' | 'journal'>('chart');
+  const [activeTab, setActiveTab] = useState<'chart' | 'strategies' | 'testing' | 'journal'>('chart');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -124,106 +125,106 @@ export default function Home() {
         showPatterns: savedPatterns !== null ? JSON.parse(savedPatterns) : true,
         showVolume: savedVolume !== null ? JSON.parse(savedVolume) : true,
       });
-    } catch {
-      // fallback to defaults
+    } catch (e) {
+      console.error('Failed to load indicator preferences:', e);
     }
   }, []);
 
-  const handleIndicatorToggle = (key: keyof IndicatorStates, value: boolean) => {
-    setIndicators((prev) => ({ ...prev, [key]: value }));
-    const storageKeys: Record<keyof IndicatorStates, string> = {
-      showEMA20: 'chart-show-ema-20',
-      showEMA50: 'chart-show-ema-50',
-      showEMA200: 'chart-show-ema-200',
-      showSupportResistance: 'chart-show-support-resistance',
-      showPatterns: 'chart-show-patterns',
-      showVolume: 'chart-show-volume',
-    };
-    localStorage.setItem(storageKeys[key], JSON.stringify(value));
+  const updateIndicator = (key: keyof IndicatorStates, val: boolean) => {
+    const next = { ...indicators, [key]: val };
+    setIndicators(next);
+    try {
+      const map: Record<keyof IndicatorStates, string> = {
+        showEMA20: 'chart-show-ema-20',
+        showEMA50: 'chart-show-ema-50',
+        showEMA200: 'chart-show-ema-200',
+        showSupportResistance: 'chart-show-support-resistance',
+        showPatterns: 'chart-show-patterns',
+        showVolume: 'chart-show-volume',
+      };
+      localStorage.setItem(map[key], JSON.stringify(val));
+    } catch (e) {
+      console.error('Failed to save indicator preference:', e);
+    }
   };
 
-  // Load alerts
-  useEffect(() => {
-    async function loadAlerts() {
-      try {
-        const response = await fetch(`${API}/api/alerts?symbol=${symbol}`);
-        if (response.ok) {
-          const data = await response.json();
-          setAlerts(data.alerts || []);
-        }
-      } catch (error) {
-        console.error('Failed to load alerts:', error);
+  // Fetch analysis data
+  const fetchAnalysis = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API}/api/analysis/${symbol}?timeframe=${timeframe}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAnalysis(data);
       }
+    } catch (error) {
+      console.error('Failed to fetch analysis:', error);
     }
-    loadAlerts();
+    setLoading(false);
+  }, [symbol, timeframe]);
+
+  // Fetch alerts list
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const response = await fetch(`${API}/api/alerts?symbol=${symbol}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAlerts(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch alerts:', error);
+    }
   }, [symbol]);
+
+  useEffect(() => {
+    fetchAnalysis();
+    fetchAlerts();
+  }, [fetchAnalysis, fetchAlerts]);
 
   // WebSocket for alert notifications
   useEffect(() => {
-    let alertSocket: WebSocket | null = null;
-    try {
-      alertSocket = new WebSocket(`${API.replace(/^http/, 'ws')}/api/ws/alerts`);
-      alertSocket.onmessage = (event) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host.includes('localhost') ? 'localhost:8000' : window.location.host}/api/ws/alerts`;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: NodeJS.Timeout;
+
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
         try {
-          const parsed = alertNotificationSchema.safeParse(JSON.parse(event.data));
-          if (!parsed.success) return;
-          const { data } = parsed.data;
-          setAlertNotifications((prev) => [data, ...prev.slice(0, 4)]);
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(`Alert: ${data.symbol}`, {
-              body: data.message,
-              icon: '/favicon.ico',
-            });
+          const data = JSON.parse(event.data);
+          const parsed = alertNotificationSchema.safeParse(data);
+          if (parsed.success) {
+            setAlertNotifications((prev) => [...prev, parsed.data]);
+            setTimeout(() => {
+              setAlertNotifications((prev) => prev.filter((n) => n !== parsed.data));
+            }, 6000);
           }
-        } catch {
-          // ignore malformed frame
+        } catch (e) {
+          console.error('Failed to parse alert notification WS message:', e);
         }
       };
-    } catch {
-      // ignore ws error
-    }
+      ws.onclose = () => {
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    };
 
+    connect();
     return () => {
-      alertSocket?.close();
+      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, []);
 
-  // Request notification permission
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  const analyze = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/api/analysis/${symbol}?timeframe=${timeframe}`);
-      if (res.ok) {
-        setAnalysis(await res.json());
-      }
-    } catch (err) {
-      console.error('Failed to analyze:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, timeframe]);
-
-  // Run initial analysis when symbol/timeframe changes
-  useEffect(() => {
-    analyze();
-  }, [analyze]);
-
-  async function createAlert(alertData: AlertFormInput) {
+  async function createAlert(input: AlertFormInput) {
     try {
       const response = await fetch(`${API}/api/alerts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...alertData, symbol }),
+        body: JSON.stringify(input),
       });
       if (response.ok) {
-        const newAlert = alertSchema.parse(await response.json());
-        setAlerts((prev) => [newAlert, ...prev]);
+        await fetchAlerts();
       }
     } catch (error) {
       console.error('Failed to create alert:', error);
@@ -297,6 +298,16 @@ export default function Home() {
           <button
             type="button"
             role="tab"
+            aria-selected={activeTab === 'testing'}
+            className={`nav-tab-btn ${activeTab === 'testing' ? 'active' : ''}`}
+            onClick={() => setActiveTab('testing')}
+          >
+            <span className="tab-icon">🧪</span>
+            <span>Testing & Paper Run</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={activeTab === 'journal'}
             className={`nav-tab-btn ${activeTab === 'journal' ? 'active' : ''}`}
             onClick={() => setActiveTab('journal')}
@@ -350,132 +361,86 @@ export default function Home() {
         </section>
       )}
 
-      {activeTab === 'strategies' ? (
-        <StrategiesView symbol={symbol} timeframe={timeframe} />
-      ) : activeTab === 'journal' ? (
-        <TradingJournalView />
-      ) : (
-        <>
-          {/* Main Chart Card Wrapper (Supports Fullscreen Mode) */}
-          <div
-            ref={chartContainerRef}
-            className={`chart-fullscreen-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`}
-          >
-            {/* Main Control Toolbar */}
-            <section className="chart-unified-toolbar">
-              <div className="toolbar-left-group">
-                <div className="timeframe-pills" role="group" aria-label="Timeframe selector">
-                  {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
+      {/* Dynamic Tab Views */}
+      {activeTab === 'chart' && (
+        <div className="terminal-dashboard">
+          {/* Top Ticker Stats */}
+          <StatsTicker symbol={symbol} timeframe={timeframe} />
+
+          {/* Main Workspace Grid */}
+          <div className="dashboard-grid">
+            {/* Left: Chart & Indicators */}
+            <div className="workspace-column chart-column">
+              <div className="panel chart-panel" ref={chartContainerRef}>
+                <div className="chart-toolbar">
+                  <div className="pills timeframe-pills">
+                    {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
+                      <button
+                        key={tf}
+                        type="button"
+                        className={timeframe === tf ? 'active' : ''}
+                        onClick={() => setTimeframe(tf)}
+                      >
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="chart-toolbar-right">
+                    <IndicatorMenu indicators={indicators} onChange={updateIndicator} />
+                    <div className="pills engine-pills">
+                      <button
+                        type="button"
+                        className={chartEngine === 'lightweight' ? 'active' : ''}
+                        onClick={() => setChartEngineMode('lightweight')}
+                      >
+                        Canvas
+                      </button>
+                      <button
+                        type="button"
+                        className={chartEngine === 'tradingview' ? 'active' : ''}
+                        onClick={() => setChartEngineMode('tradingview')}
+                      >
+                        TradingView
+                      </button>
+                    </div>
+
                     <button
-                      key={tf}
                       type="button"
-                      className={`tf-btn ${timeframe === tf ? 'active' : ''}`}
-                      onClick={() => setTimeframe(tf)}
+                      className="chart-action-btn"
+                      onClick={toggleFullscreen}
+                      title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      aria-label="Toggle fullscreen"
                     >
-                      {tf}
+                      {isFullscreen ? '⤹' : '⤢'}
                     </button>
-                  ))}
+                  </div>
                 </div>
 
-                <div className="toolbar-divider" />
-
-                {/* Indicator Controls Dropdown */}
-                <IndicatorMenu
-                  indicators={indicators}
-                  onToggle={handleIndicatorToggle}
-                />
-              </div>
-
-              <div className="toolbar-right-group">
-                {/* Chart Engine Switcher */}
-                <div className="engine-switcher-pills" role="group" aria-label="Chart renderer">
-                  <button
-                    type="button"
-                    className={chartEngine === 'lightweight' ? 'active' : ''}
-                    onClick={() => setChartEngineMode('lightweight')}
-                    title="Lightweight Charts v5 (Native High-Speed)"
-                  >
-                    <span>⚡ Lightweight</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={chartEngine === 'tradingview' ? 'active' : ''}
-                    onClick={() => setChartEngineMode('tradingview')}
-                    title="TradingView Advanced Widget"
-                  >
-                    <span>📊 TradingView</span>
-                  </button>
+                <div className="chart-wrapper">
+                  {chartEngine === 'lightweight' ? (
+                    <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} />
+                  ) : (
+                    <TradingViewWidget symbol={symbol} theme={theme} />
+                  )}
                 </div>
-
-                <button
-                  type="button"
-                  className="analyze-pipeline-btn"
-                  onClick={analyze}
-                  disabled={loading}
-                >
-                  {loading ? 'Analyzing…' : '↻ Analyze'}
-                </button>
-
-                <button
-                  type="button"
-                  className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`}
-                  onClick={toggleFullscreen}
-                  title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Full Screen View'}
-                  aria-label="Toggle Fullscreen"
-                >
-                  <span>{isFullscreen ? '🗗 Exit' : '⛶ Fullscreen'}</span>
-                </button>
               </div>
-            </section>
+            </div>
 
-            {/* Chart Frame Section */}
-            <section className="chart-viewport-card">
-              {chartEngine === 'tradingview' ? (
-                <TradingViewWidget
-                  symbol={symbol}
-                  timeframe={timeframe}
-                  theme={theme}
-                />
-              ) : (
-                <MarketChart
-                  symbol={symbol}
-                  timeframe={timeframe}
-                  theme={theme}
-                  showEMA20={indicators.showEMA20}
-                  showEMA50={indicators.showEMA50}
-                  showEMA200={indicators.showEMA200}
-                  showSupportResistance={indicators.showSupportResistance}
-                  showPatterns={indicators.showPatterns}
-                  showVolume={indicators.showVolume}
-                />
-              )}
-            </section>
+            {/* Right: AI Analysis & Alerts Sidebar */}
+            <div className="workspace-column sidebar-column">
+              <AnalysisPanel symbol={symbol} timeframe={timeframe} analysis={analysis} loading={loading} />
+              <AlertsPanel symbol={symbol} alerts={alerts} onCreate={createAlert} onToggle={toggleAlert} onDelete={deleteAlert} />
+            </div>
           </div>
-
-          {/* Quick Metrics Ticker */}
-          <StatsTicker analysis={analysis} />
-
-          {/* 2-Column Responsive Dashboard Grid: AI Analysis + Alerts */}
-          <section className="dashboard-analysis-alerts-grid">
-            <AnalysisPanel
-              symbol={symbol}
-              timeframe={timeframe}
-              analysis={analysis}
-              loading={loading}
-              onRefresh={analyze}
-            />
-
-            <AlertsPanel
-              symbol={symbol}
-              alerts={alerts}
-              currentPrice={analysis?.price}
-              onToggle={toggleAlert}
-              onDelete={deleteAlert}
-              onCreate={createAlert}
-            />
-          </section>
-        </>
+        </div>
       )}
+
+      {activeTab === 'strategies' && <StrategiesView />}
+
+      {activeTab === 'testing' && <TestingView />}
+
+      {activeTab === 'journal' && <TradingJournalView />}
     </main>
   );
 }
