@@ -18,13 +18,13 @@ class PaperTradingEngine:
             "open_positions": []
         }
 
-    def start(self):
+    async def start(self):
         if not self.running:
             self.running = True
             self._status["is_running"] = True
             logger.info("PaperTradingEngine started")
 
-    def stop(self):
+    async def stop(self):
         self.running = False
         self._status["is_running"] = False
         logger.info("PaperTradingEngine stopped")

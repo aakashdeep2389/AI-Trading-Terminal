@@ -22,6 +22,7 @@ import {
   type LineSeriesOptions,
   type HistogramSeriesOptions,
 } from 'lightweight-charts';
+import type { IndicatorStates } from './IndicatorMenu';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -35,6 +36,7 @@ interface MarketChartProps {
   showSupportResistance?: boolean;
   showPatterns?: boolean;
   showVolume?: boolean;
+  indicators?: IndicatorStates;
 }
 
 interface BackendSeries {
@@ -75,23 +77,31 @@ export default function MarketChart({
   showSupportResistance,
   showPatterns,
   showVolume,
+  indicators,
 }: MarketChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<{ series: ISeriesApi<SeriesType>; type: BackendSeries['type']; kind?: string }[]>([]);
   const lastCandleTimeRef = useRef<number | null>(null);
 
+  const effEMA20 = indicators?.showEMA20 ?? showEMA20 ?? true;
+  const effEMA50 = indicators?.showEMA50 ?? showEMA50 ?? true;
+  const effEMA200 = indicators?.showEMA200 ?? showEMA200 ?? true;
+  const effSR = indicators?.showSupportResistance ?? showSupportResistance ?? true;
+  const effPatterns = indicators?.showPatterns ?? showPatterns ?? true;
+  const effVolume = indicators?.showVolume ?? showVolume ?? true;
+
   const fetchConfig = useCallback(async () => {
     const params = new URLSearchParams({
       symbol,
       timeframe,
       chart_type: 'candlestick',
-      show_emas_20: showEMA20 !== undefined ? String(showEMA20) : 'true',
-      show_emas_50: showEMA50 !== undefined ? String(showEMA50) : 'true',
-      show_emas_200: showEMA200 !== undefined ? String(showEMA200) : 'true',
-      show_volume: showVolume !== undefined ? String(showVolume) : 'true',
-      show_patterns: showPatterns !== undefined ? String(showPatterns) : 'true',
-      show_support_resistance: showSupportResistance !== undefined ? String(showSupportResistance) : 'true',
+      show_emas_20: String(effEMA20),
+      show_emas_50: String(effEMA50),
+      show_emas_200: String(effEMA200),
+      show_volume: String(effVolume),
+      show_patterns: String(effPatterns),
+      show_support_resistance: String(effSR),
       refresh: 'true',
       theme,
     });
@@ -104,7 +114,7 @@ export default function MarketChart({
       console.error('[MarketChart] failed to load config:', error);
       return null;
     }
-  }, [symbol, timeframe, showEMA20, showEMA50, showEMA200, showVolume, showPatterns, showSupportResistance, theme]);
+  }, [symbol, timeframe, effEMA20, effEMA50, effEMA200, effVolume, effPatterns, effSR, theme]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -233,6 +243,7 @@ export default function MarketChart({
       chartRef.current?.remove();
       chartRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchConfig, symbol, timeframe]);
 
   return <div className="market-chart" ref={containerRef} aria-label={`${symbol} ${timeframe} chart`} />;

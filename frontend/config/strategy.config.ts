@@ -37,6 +37,7 @@ export interface StrategyConfig {
   slow: number;
   risk_pct: number;
   stop_atr_multiple: number;
+  stop_buffer?: number;
   custom_indicators: CustomIndicatorConfig[];
   universal_exit: UniversalExitConfig;
   overnight_protection: OvernightProtectionConfig;

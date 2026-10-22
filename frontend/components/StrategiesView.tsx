@@ -239,11 +239,11 @@ const PRESETS: Array<{ label: string; config: StrategyConfig }> = [
 ];
 
 interface StrategiesViewProps {
-  symbol: string;
-  timeframe: string;
+  symbol?: string;
+  timeframe?: string;
 }
 
-export default function StrategiesView({ symbol, timeframe }: StrategiesViewProps) {
+export default function StrategiesView({ symbol = 'BTCUSDT', timeframe = '1h' }: StrategiesViewProps) {
   const [strategy, setStrategy] = useState<StrategyConfig>(PRESETS[0].config);
   const [activeTab, setActiveTab] = useState<'core' | 'execution' | 'exit' | 'marketplace'>('core');
   const [newCondition, setNewCondition] = useState('');

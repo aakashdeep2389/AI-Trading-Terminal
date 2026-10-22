@@ -1,0 +1,92 @@
+.instrument-select-wrapper { position: relative; }
+
+.instrument-select-trigger {
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-border);
+  color: var(--text-body);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.instrument-select-trigger:hover {
+  border-color: var(--border-subtle);
+  background: var(--btn-hover-bg);
+  box-shadow: 0 0 10px var(--accent-cyan-dim);
+}
+
+.instrument-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--modal-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md), 0 0 30px rgba(0, 212, 255, 0.06);
+  padding: 10px;
+  width: 200px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  backdrop-filter: blur(20px);
+}
+
+.instrument-search-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-body);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.instrument-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.instrument-item {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.instrument-item:hover, .instrument-item.active {
+  background: var(--btn-hover-bg);
+  color: var(--accent-cyan);
+}
+
+.add-instrument-btn {
+  background: var(--accent-primary-dim);
+  border: none;
+  color: var(--accent-primary);
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.no-results {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 8px;
+  text-align: center;
+}

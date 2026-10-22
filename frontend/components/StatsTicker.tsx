@@ -4,9 +4,11 @@ import type { Analysis } from '../lib/schemas';
 
 interface StatsTickerProps {
   analysis: Analysis | null;
+  symbol?: string;
+  timeframe?: string;
 }
 
-export default function StatsTicker({ analysis }: StatsTickerProps) {
+export default function StatsTicker({ analysis, symbol, timeframe }: StatsTickerProps) {
   const indicators = analysis?.indicators || {};
   const risk = analysis?.risk || {};
   const rsi = indicators.rsi14;
@@ -29,8 +31,8 @@ export default function StatsTicker({ analysis }: StatsTickerProps) {
     <div className="stats-ticker-grid">
       <div className="stats-metric-card">
         <div className="metric-header">
-          <span className="metric-label">Market Price</span>
-          <span className="metric-tag live">LIVE</span>
+          <span className="metric-label">{symbol ? `${symbol} Price` : 'Market Price'}</span>
+          <span className="metric-tag live">{timeframe ? timeframe.toUpperCase() : 'LIVE'}</span>
         </div>
         <div className="metric-value price-val">{price}</div>
       </div>

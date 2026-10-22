@@ -1,3 +1,4 @@
+@import './InstrumentSelect.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -346,7 +347,7 @@ main {
 /* ==========================================================================
    CHART TOOLBAR
    ========================================================================== */
-.chart-unified-toolbar {
+.chart-unified-toolbar, .chart-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -355,7 +356,7 @@ main {
   flex-wrap: wrap;
 }
 
-.toolbar-left-group, .toolbar-right-group {
+.toolbar-left-group, .toolbar-right-group, .chart-toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -377,7 +378,7 @@ main {
   backdrop-filter: blur(8px);
 }
 
-.tf-btn {
+.tf-btn, .timeframe-pills button {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -391,9 +392,9 @@ main {
   letter-spacing: 0.3px;
 }
 
-.tf-btn:hover { color: var(--text-body); background: var(--btn-hover-bg); }
+.tf-btn:hover, .timeframe-pills button:hover { color: var(--text-body); background: var(--btn-hover-bg); }
 
-.tf-btn.active {
+.tf-btn.active, .timeframe-pills button.active {
   background: var(--btn-active-bg);
   color: var(--btn-active-text);
   box-shadow: 0 0 8px var(--accent-cyan-dim);
@@ -514,7 +515,7 @@ main {
 .color-dot.volume { background: #00d4ff; box-shadow: 0 0 6px rgba(0,212,255,0.5); }
 
 /* Engine Switcher */
-.engine-switcher-pills {
+.engine-switcher-pills, .engine-pills {
   display: flex;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -523,7 +524,7 @@ main {
   gap: 2px;
 }
 
-.engine-switcher-pills button {
+.engine-switcher-pills button, .engine-pills button {
   background: transparent;
   border: none;
   color: var(--text-muted);
@@ -535,7 +536,7 @@ main {
   transition: all 0.15s ease;
 }
 
-.engine-switcher-pills button.active {
+.engine-switcher-pills button.active, .engine-pills button.active {
   background: var(--btn-active-bg);
   color: var(--btn-active-text);
   box-shadow: 0 0 8px var(--accent-cyan-dim);
@@ -563,7 +564,7 @@ main {
 
 .analyze-pipeline-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.fullscreen-btn {
+.fullscreen-btn, .chart-action-btn {
   background: var(--btn-bg);
   border: 1px solid var(--btn-border);
   color: var(--text-secondary);
@@ -578,13 +579,13 @@ main {
   transition: all 0.2s ease;
 }
 
-.fullscreen-btn:hover {
+.fullscreen-btn:hover, .chart-action-btn:hover {
   background: var(--btn-hover-bg);
   border-color: var(--border-subtle);
   color: var(--accent-cyan);
 }
 
-.fullscreen-btn.active {
+.fullscreen-btn.active, .chart-action-btn.active {
   background: var(--btn-active-bg);
   border-color: var(--btn-active-border);
   color: var(--btn-active-text);

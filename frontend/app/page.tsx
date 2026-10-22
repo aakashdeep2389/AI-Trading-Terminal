@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   alertNotificationSchema,
-  alertSchema,
   type Alert,
   type AlertFormInput,
   type Analysis,
@@ -17,6 +16,7 @@ import IndicatorMenu, { type IndicatorStates } from '../components/IndicatorMenu
 import StatsTicker from '../components/StatsTicker';
 import AnalysisPanel from '../components/AnalysisPanel';
 import AlertsPanel from '../components/AlertsPanel';
+import InstrumentSelect from '../components/InstrumentSelect';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -27,8 +27,8 @@ export interface AlertToast {
 }
 
 export default function Home() {
-  const [symbol, setSymbol] = useState('BTCUSDT');
-  const [timeframe, setTimeframe] = useState('1m');
+  const [symbol, setSymbol] = useState('XAUUSD');
+  const [timeframe, setTimeframe] = useState('15m');
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -195,9 +195,10 @@ export default function Home() {
           const data = JSON.parse(event.data);
           const parsed = alertNotificationSchema.safeParse(data);
           if (parsed.success) {
-            setAlertNotifications((prev) => [...prev, parsed.data]);
+            const toast: AlertToast = parsed.data.data;
+            setAlertNotifications((prev) => [...prev, toast]);
             setTimeout(() => {
-              setAlertNotifications((prev) => prev.filter((n) => n !== parsed.data));
+              setAlertNotifications((prev) => prev.filter((n) => n !== toast));
             }, 6000);
           }
         } catch (e) {
@@ -269,7 +270,6 @@ export default function Home() {
           <span className="brand-badge">PRO</span>
           <div>
             <h1 className="brand-title">AI Trading Platform</h1>
-            <span className="sub">BTCUSDT • XAUUSD</span>
           </div>
         </div>
 
@@ -319,23 +319,6 @@ export default function Home() {
 
         {/* Header Right Controls */}
         <div className="header-controls">
-          <div className="control-group">
-            <div className="pills symbol-pills">
-              {['BTCUSDT', 'XAUUSD'].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={symbol === item ? 'active' : ''}
-                  onClick={() => setSymbol(item)}
-                >
-                  {item === 'BTCUSDT' ? '₿ BTCUSDT' : '🪙 XAUUSD'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="header-divider-vertical" />
-
           <button
             type="button"
             className="theme-toggle-btn"
@@ -365,78 +348,96 @@ export default function Home() {
       {activeTab === 'chart' && (
         <div className="terminal-dashboard">
           {/* Top Ticker Stats */}
-          <StatsTicker symbol={symbol} timeframe={timeframe} />
+          <StatsTicker analysis={analysis} symbol={symbol} timeframe={timeframe} />
 
-          {/* Main Workspace Grid */}
-          <div className="dashboard-grid">
-            {/* Left: Chart & Indicators */}
-            <div className="workspace-column chart-column">
-              <div className="panel chart-panel" ref={chartContainerRef}>
-                <div className="chart-toolbar">
-                  <div className="pills timeframe-pills">
-                    {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
-                      <button
-                        key={tf}
-                        type="button"
-                        className={timeframe === tf ? 'active' : ''}
-                        onClick={() => setTimeframe(tf)}
-                      >
-                        {tf}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="chart-toolbar-right">
-                    <IndicatorMenu indicators={indicators} onChange={updateIndicator} />
-                    <div className="pills engine-pills">
-                      <button
-                        type="button"
-                        className={chartEngine === 'lightweight' ? 'active' : ''}
-                        onClick={() => setChartEngineMode('lightweight')}
-                      >
-                        Canvas
-                      </button>
-                      <button
-                        type="button"
-                        className={chartEngine === 'tradingview' ? 'active' : ''}
-                        onClick={() => setChartEngineMode('tradingview')}
-                      >
-                        TradingView
-                      </button>
-                    </div>
-
+          {/* Main Chart Section */}
+          <div
+            className={`chart-fullscreen-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`}
+            ref={chartContainerRef}
+          >
+            <div className="chart-unified-toolbar">
+              <div className="toolbar-left-group">
+                <div className="control-group" style={{ marginRight: '8px' }}>
+                  <InstrumentSelect currentSymbol={symbol} onSelectSymbol={setSymbol} />
+                </div>
+                <div className="timeframe-pills">
+                  {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
                     <button
+                      key={tf}
                       type="button"
-                      className="chart-action-btn"
-                      onClick={toggleFullscreen}
-                      title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                      aria-label="Toggle fullscreen"
+                      className={`tf-btn ${timeframe === tf ? 'active' : ''}`}
+                      onClick={() => setTimeframe(tf)}
                     >
-                      {isFullscreen ? '⤹' : '⤢'}
+                      {tf}
                     </button>
-                  </div>
+                  ))}
                 </div>
+              </div>
 
-                <div className="chart-wrapper">
-                  {chartEngine === 'lightweight' ? (
-                    <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} />
-                  ) : (
-                    <TradingViewWidget symbol={symbol} theme={theme} />
-                  )}
+              <div className="toolbar-right-group">
+                <IndicatorMenu indicators={indicators} onToggle={updateIndicator} />
+                <div className="toolbar-divider" />
+                <div className="engine-switcher-pills">
+                  <button
+                    type="button"
+                    className={chartEngine === 'lightweight' ? 'active' : ''}
+                    onClick={() => setChartEngineMode('lightweight')}
+                  >
+                    Canvas
+                  </button>
+                  <button
+                    type="button"
+                    className={chartEngine === 'tradingview' ? 'active' : ''}
+                    onClick={() => setChartEngineMode('tradingview')}
+                  >
+                    TradingView
+                  </button>
                 </div>
+                <div className="toolbar-divider" />
+                <button
+                  type="button"
+                  className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`}
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  aria-label="Toggle fullscreen"
+                >
+                  <span style={{ fontSize: '13px' }}>{isFullscreen ? '⤹' : '⤢'}</span>
+                  <span>{isFullscreen ? 'Exit' : 'Full'}</span>
+                </button>
               </div>
             </div>
 
-            {/* Right: AI Analysis & Alerts Sidebar */}
-            <div className="workspace-column sidebar-column">
-              <AnalysisPanel symbol={symbol} timeframe={timeframe} analysis={analysis} loading={loading} />
-              <AlertsPanel symbol={symbol} alerts={alerts} onCreate={createAlert} onToggle={toggleAlert} onDelete={deleteAlert} />
+            <div className="chart-viewport-card">
+              {chartEngine === 'lightweight' ? (
+                <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} />
+              ) : (
+                <TradingViewWidget symbol={symbol} timeframe={timeframe} theme={theme} />
+              )}
             </div>
+          </div>
+
+          {/* Analysis & Alerts Grid */}
+          <div className="dashboard-analysis-alerts-grid">
+            <AnalysisPanel
+              symbol={symbol}
+              timeframe={timeframe}
+              analysis={analysis}
+              loading={loading}
+              onRefresh={fetchAnalysis}
+            />
+            <AlertsPanel
+              symbol={symbol}
+              alerts={alerts}
+              currentPrice={analysis?.price}
+              onCreate={createAlert}
+              onToggle={toggleAlert}
+              onDelete={deleteAlert}
+            />
           </div>
         </div>
       )}
 
-      {activeTab === 'strategies' && <StrategiesView />}
+      {activeTab === 'strategies' && <StrategiesView symbol={symbol} timeframe={timeframe} />}
 
       {activeTab === 'testing' && <TestingView />}
 

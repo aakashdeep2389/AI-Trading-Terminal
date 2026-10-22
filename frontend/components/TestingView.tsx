@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { StrategyConfig, DEFAULT_ADVANCED_SETTINGS, DEFAULT_MARKETPLACE_SETTINGS } from '../config/strategy.config'; // Assuming this path is correct
-import { getMarketStatus } from '../api/market'; // Example API call
-import { runBacktest } from '../api/backtesting'; // Example API call
-import { getJournalTrades, getJournalStats } from '../api/journal'; // Example API calls
-import { getPaperTradingStatus, startPaperEngine, stopPaperEngine, updatePaperConfig } from '../api/paper'; // Example API calls
+import { useState, useEffect, useCallback } from 'react';
+import { StrategyConfig, DEFAULT_ADVANCED_SETTINGS, DEFAULT_MARKETPLACE_SETTINGS, IndicatorConfig } from '../config/strategy.config';
+import { getJournalTrades, getJournalStats, BacktestStats } from '../api/journal';
+import { getPaperTradingStatus, startPaperEngine, stopPaperEngine, updatePaperConfig } from '../api/paper';
+import { runBacktest } from '../lib/backtesting';
+import './TestingView.css';
 
 interface Trade {
   id: number;
@@ -17,6 +17,7 @@ interface Trade {
   pnl: number | null;
   pnl_pct: number | null;
   outcome: string | null;
+  exit_reason?: string | null;
   strategy_tag: string | null;
   timeframe: string | null;
   emotion: string | null;
@@ -44,6 +45,7 @@ interface PaperEngineStatus {
   active_symbol: string;
   active_timeframe: string;
   open_positions: PaperTradePosition[];
+  config?: Partial<StrategyConfig>;
 }
 
 const DEFAULT_CONFIG = {
@@ -53,7 +55,7 @@ const DEFAULT_CONFIG = {
   min_confluence_score: 0,
   fib_timeframe: 'daily',
   fib_lookback: 15,
-  stop_buffer: 0.001 // Example buffer as a percentage of price
+  stop_buffer: 0.001
 };
 
 export default function TestingView() {
@@ -62,18 +64,22 @@ export default function TestingView() {
   const [engineStatus, setEngineStatus] = useState<PaperEngineStatus | null>(null);
   const [strategyConfig, setStrategyConfig] = useState<StrategyConfig>({
     name: 'Bollinger Bands MTF Paper',
-    fast: 20, // Placeholder values, will be overridden by config
-    slow: 50, // Placeholder values
+    fast: DEFAULT_CONFIG.bb_period,
+    slow: 50,
     risk_pct: DEFAULT_CONFIG.risk_pct,
-    stop_atr_multiple: 2.0, // Placeholder, actual SL calculation is dynamic
-    custom_indicators: [],
+    stop_atr_multiple: 2.0,
+    stop_buffer: DEFAULT_CONFIG.stop_buffer,
+    custom_indicators: [
+      { type: 'bollinger_bands', params: { period: DEFAULT_CONFIG.bb_period, num_std: DEFAULT_CONFIG.bb_std } },
+      { type: 'fibonacci_pivots', params: { timeframe: DEFAULT_CONFIG.fib_timeframe, lookback: DEFAULT_CONFIG.fib_lookback } }
+    ],
     universal_exit: { description: '', conditions: [] },
     overnight_protection: { description: '' },
     advanced_settings: DEFAULT_ADVANCED_SETTINGS,
     marketplace_settings: DEFAULT_MARKETPLACE_SETTINGS
   });
   const [paperTrades, setPaperTrades] = useState<Trade[]>([]);
-  const [journalStats, setJournalStats] = useState<any>(null); // Use a more specific type if available
+  const [journalStats, setJournalStats] = useState<BacktestStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,28 +90,50 @@ export default function TestingView() {
       setEngineStatus(status);
       setError(null);
 
-      // Fetch and set current strategy config if engine is active or on load
+      let currentSymbol = symbol;
+      let currentTimeframe = timeframe;
+
       if (status && status.active_symbol) {
-        setSymbol(status.active_symbol);
-        setTimeframe(status.timeframe || '5m');
-        // Ideally, fetch the *actual* config from backend, not just use default
-        setStrategyConfig(prev => ({ ...prev, ...status.config }));
+        currentSymbol = status.active_symbol;
+        currentTimeframe = status.active_timeframe || '5m';
+        setSymbol(currentSymbol);
+        setTimeframe(currentTimeframe);
+        if (status.config) {
+          setStrategyConfig(prev => ({
+            ...prev,
+            ...status.config,
+            custom_indicators: prev.custom_indicators?.map(ind => {
+              const matchedConfig = status.config?.custom_indicators?.find((c_ind: IndicatorConfig) => c_ind.type === ind.type);
+              return matchedConfig ? { ...ind, params: { ...ind.params, ...matchedConfig.params } } : ind;
+            })
+          }));
+        }
       } else {
-         // If engine is not active, load default config
-         setStrategyConfig(prev => ({ ...prev, ...DEFAULT_CONFIG }));
+        setStrategyConfig(prev => ({
+          ...prev,
+          ...DEFAULT_CONFIG,
+          custom_indicators: [
+            { type: 'bollinger_bands', params: { period: DEFAULT_CONFIG.bb_period, num_std: DEFAULT_CONFIG.bb_std } },
+            { type: 'fibonacci_pivots', params: { timeframe: DEFAULT_CONFIG.fib_timeframe, lookback: DEFAULT_CONFIG.fib_lookback } }
+          ]
+        }));
       }
 
-      const trades = await getJournalTrades(status?.active_symbol || symbol, '', 100);
+      const trades = await getJournalTrades(currentSymbol, '', 100);
       setPaperTrades(trades.trades || []);
-      const stats = await getJournalStats(status?.active_symbol || symbol);
+      const stats = await getJournalStats(currentSymbol);
       setJournalStats(stats);
 
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch data.');
+    } catch (err: unknown) {
+      console.error("Error fetching status:", err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch data.');
+      setEngineStatus(null);
+      setPaperTrades([]);
+      setJournalStats(null);
     } finally {
       setLoading(false);
     }
-  }, [symbol]); // Depend on symbol to refetch trades/stats when symbol changes
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     fetchStatus();
@@ -119,7 +147,6 @@ export default function TestingView() {
       if (engineStatus.is_running) {
         await stopPaperEngine();
       } else {
-        // Apply current strategy config before starting
         await updatePaperConfig({
           symbol: symbol,
           timeframe: timeframe,
@@ -127,83 +154,74 @@ export default function TestingView() {
         });
         await startPaperEngine();
       }
-      await fetchStatus(); // Refresh status after action
-    } catch (err: any) {
-      setError(err.message || 'Failed to toggle engine.');
+      await fetchStatus();
+    } catch (err: unknown) {
+      console.error("Error toggling engine:", err);
+      setError(err instanceof Error ? err.message : 'Failed to toggle engine.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConfigChange = (key: keyof StrategyConfig, value: any) => {
+  const handleConfigChange = <K extends keyof StrategyConfig>(key: K, value: StrategyConfig[K]) => {
     setStrategyConfig(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleAdvancedConfigChange = (key: keyof StrategyConfig['advanced_settings'], value: any) => {
-      setStrategyConfig(prev => ({
-          ...prev,
-          advanced_settings: {
-              ...prev.advanced_settings,
-              [key]: value
-          }
-      }));
+  const handleIndicatorConfigChange = (indicatorType: string, newParams: Record<string, unknown>) => {
+    setStrategyConfig(prev => {
+      const existingIndicators = prev.custom_indicators || [];
+      const indicatorIndex = existingIndicators.findIndex(ind => ind.type === indicatorType);
+      let updatedIndicators;
+
+      if (indicatorIndex === -1) {
+        updatedIndicators = [...existingIndicators, { type: indicatorType, params: newParams }];
+      } else {
+        updatedIndicators = [...existingIndicators];
+        updatedIndicators[indicatorIndex] = { ...updatedIndicators[indicatorIndex], params: { ...updatedIndicators[indicatorIndex].params, ...newParams } };
+      }
+
+      return {
+        ...prev,
+        custom_indicators: updatedIndicators
+      };
+    });
   };
 
-  // Handler for BB and Fib config changes specifically
-  const handleIndicatorConfigChange = (indicatorType: string, newParams: any) => {
-      setStrategyConfig(prev => {
-          const existingIndicators = prev.custom_indicators || [];
-          const indicatorIndex = existingIndicators.findIndex(ind => ind.type === indicatorType);
-          let updatedIndicators;
-
-          if (indicatorIndex === -1) {
-              // Add new indicator if not present
-              updatedIndicators = [...existingIndicators, { type: indicatorType, params: newParams }];
-          } else {
-              // Update existing indicator
-              updatedIndicators = [...existingIndicators];
-              updatedIndicators[indicatorIndex] = { ...updatedIndicators[indicatorIndex], params: { ...updatedIndicators[indicatorIndex].params, ...newParams } };
-          }
-
-          return {
-              ...prev,
-              custom_indicators: updatedIndicators
-          };
-      });
-  };
-
-  const BB_CONFIG = strategyConfig.custom_indicators?.find(ind => ind.type === 'bollinger_bands')?.params || DEFAULT_CONFIG;
-  const FIB_CONFIG = strategyConfig.custom_indicators?.find(ind => ind.type === 'fibonacci_pivots')?.params || DEFAULT_CONFIG;
+  const BB_CONFIG = (strategyConfig.custom_indicators?.find(ind => ind.type === 'bollinger_bands')?.params || { period: DEFAULT_CONFIG.bb_period, num_std: DEFAULT_CONFIG.bb_std }) as Record<string, unknown>;
+  const FIB_CONFIG = (strategyConfig.custom_indicators?.find(ind => ind.type === 'fibonacci_pivots')?.params || { timeframe: DEFAULT_CONFIG.fib_timeframe, lookback: DEFAULT_CONFIG.fib_lookback }) as Record<string, unknown>;
 
   const handleSaveConfig = async () => {
-      try {
-          setLoading(true);
-          await updatePaperConfig({
-              symbol: symbol,
-              timeframe: timeframe,
-              config: strategyConfig
-          });
-          alert('Configuration saved successfully!'); // User feedback
-          fetchStatus(); // Refresh to show updated config if needed
-      } catch (err: any) {
-          setError(err.message || 'Failed to save configuration.');
-      } finally {
-          setLoading(false);
-      }
+    try {
+      setLoading(true);
+      await updatePaperConfig({
+        symbol: symbol,
+        timeframe: timeframe,
+        config: strategyConfig
+      });
+      alert('Configuration saved successfully!');
+      fetchStatus();
+    } catch (err: unknown) {
+      console.error("Error saving config:", err);
+      setError(err instanceof Error ? err.message : 'Failed to save configuration.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const formatPrice = (price: number | null | undefined) => price !== null && price !== undefined ? price.toFixed(2) : 'N/A';
   const formatPercentage = (pct: number | null | undefined) => pct !== null && pct !== undefined ? pct.toFixed(2) + '%' : 'N/A';
 
-  if (loading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error}</div>;
+  if (loading && !engineStatus) return <div className="loading-indicator">Loading Testing & Paper Run...</div>;
 
   return (
-    <main className="testing-container">
-      <header className="testing-header">
-        <h2>Paper Trading Engine</h2>
+    <main className="testing-view-container">
+      <header className="testing-view-header">
+        <div className="header-title-wrapper">
+          <h2 className="view-title">Paper Trading Engine</h2>
+          <span className="view-subtitle">Automated Execution & MTF Signal Confluence</span>
+        </div>
         <div className="engine-controls">
-          <button onClick={handleToggleEngine} className={engineStatus?.is_running ? 'running' : ''}>
+          <button onClick={handleToggleEngine} className={`control-btn ${engineStatus?.is_running ? 'running' : ''}`}>
             {engineStatus?.is_running ? 'Stop Engine' : 'Start Engine'}
           </button>
           <span className={`status-indicator ${engineStatus?.is_running ? 'running' : 'stopped'}`}>
@@ -222,155 +240,198 @@ export default function TestingView() {
             <option value="15m">15m</option>
             <option value="1h">1h</option>
           </select>
-          <button onClick={handleSaveConfig} disabled={engineStatus?.is_running}>Save Config</button>
+          <button onClick={handleSaveConfig} disabled={engineStatus?.is_running} className="control-btn save-btn">Save Config</button>
         </div>
       </header>
 
-      <div className="testing-grid">
-        {/* Left Panel: Strategy Configuration */}
+      <div className="testing-view-grid">
         <aside className="config-panel">
-          <h3>Strategy Configuration</h3>
-
-          {/* Core Signals Tab Navigation */}
+          <h3 className="panel-title">Strategy Configuration</h3>
           <div className="config-tab-nav">
-              <button className="config-tab-btn active">Core Signals</button>
-              <button className="config-tab-btn">Execution & Risk</button>
-              <button className="config-tab-btn">Confluence</button>
+            <button className="config-tab-btn active">Core Signals</button>
+            <button className="config-tab-btn">Execution & Risk</button>
+            <button className="config-tab-btn">Confluence</button>
           </div>
 
-          <div className="config-section">
-            <h4>Bollinger Bands (5m/15m)</h4>
+          <section className="config-section">
+            <h4 className="config-section-title">Bollinger Bands (5m/15m)</h4>
             <div className="form-row">
               <div className="form-group">
-                <label>Period</label>
-                <input type="number" value={BB_CONFIG.period || DEFAULT_CONFIG.bb_period} onChange={(e) => handleIndicatorConfigChange('bollinger_bands', { ...BB_CONFIG, period: parseInt(e.target.value) })} />
+                <label htmlFor="bb-period">Period</label>
+                <input
+                  id="bb-period"
+                  type="number"
+                  value={Number(BB_CONFIG.period ?? DEFAULT_CONFIG.bb_period)}
+                  onChange={(e) => handleIndicatorConfigChange('bollinger_bands', { ...BB_CONFIG, period: parseInt(e.target.value) })}
+                />
               </div>
               <div className="form-group">
-                <label>StdDev</label>
-                <input type="number" step="0.1" value={BB_CONFIG.num_std || DEFAULT_CONFIG.bb_std} onChange={(e) => handleIndicatorConfigChange('bollinger_bands', { ...BB_CONFIG, num_std: parseFloat(e.target.value) })} />
+                <label htmlFor="bb-stddev">StdDev</label>
+                <input
+                  id="bb-stddev"
+                  type="number"
+                  step="0.1"
+                  value={Number(BB_CONFIG.num_std ?? DEFAULT_CONFIG.bb_std)}
+                  onChange={(e) => handleIndicatorConfigChange('bollinger_bands', { ...BB_CONFIG, num_std: parseFloat(e.target.value) })}
+                />
               </div>
             </div>
-            {/* Add more BB params if needed */}
-          </div>
+          </section>
 
-          <div className="config-section">
-            <h4>Fibonacci Pivots (Daily)</h4>
+          <section className="config-section">
+            <h4 className="config-section-title">Fibonacci Pivots (Daily)</h4>
             <div className="form-row">
               <div className="form-group">
-                <label>Timeframe</label>
-                <select value={FIB_CONFIG.timeframe || DEFAULT_CONFIG.fib_timeframe} onChange={(e) => handleIndicatorConfigChange('fibonacci_pivots', { ...FIB_CONFIG, timeframe: e.target.value })}>
+                <label htmlFor="fib-timeframe">Timeframe</label>
+                <select
+                  id="fib-timeframe"
+                  value={String(FIB_CONFIG.timeframe ?? DEFAULT_CONFIG.fib_timeframe)}
+                  onChange={(e) => handleIndicatorConfigChange('fibonacci_pivots', { ...FIB_CONFIG, timeframe: e.target.value })}
+                >
                   <option value="daily">Daily</option>
-                  {/* Add other timeframes if supported by backend */}
                 </select>
               </div>
               <div className="form-group">
-                <label>Lookback</label>
-                <input type="number" value={FIB_CONFIG.lookback || DEFAULT_CONFIG.fib_lookback} onChange={(e) => handleIndicatorConfigChange('fibonacci_pivots', { ...FIB_CONFIG, lookback: parseInt(e.target.value) })} />
+                <label htmlFor="fib-lookback">Lookback</label>
+                <input
+                  id="fib-lookback"
+                  type="number"
+                  value={Number(FIB_CONFIG.lookback ?? DEFAULT_CONFIG.fib_lookback)}
+                  onChange={(e) => handleIndicatorConfigChange('fibonacci_pivots', { ...FIB_CONFIG, lookback: parseInt(e.target.value) })}
+                />
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="config-section">
-            <h4>Risk & Confluence</h4>
+          <section className="config-section">
+            <h4 className="config-section-title">Risk & Confluence</h4>
             <div className="form-row">
               <div className="form-group">
-                <label>Risk % per Trade</label>
-                <input type="number" step="0.1" value={strategyConfig.risk_pct || DEFAULT_CONFIG.risk_pct} onChange={(e) => handleConfigChange('risk_pct', parseFloat(e.target.value) || DEFAULT_CONFIG.risk_pct)} />
+                <label htmlFor="risk-pct">Risk % per Trade</label>
+                <input
+                  id="risk-pct"
+                  type="number"
+                  step="0.1"
+                  value={strategyConfig.risk_pct || DEFAULT_CONFIG.risk_pct}
+                  onChange={(e) => handleConfigChange('risk_pct', parseFloat(e.target.value) || DEFAULT_CONFIG.risk_pct)}
+                />
               </div>
               <div className="form-group">
-                <label>Stop Loss Buffer</label>
-                <input type="number" step="0.0001" value={DEFAULT_CONFIG.stop_buffer} onChange={(e) => handleConfigChange('stop_buffer', parseFloat(e.target.value) || DEFAULT_CONFIG.stop_buffer)} />
+                <label htmlFor="stop-loss-buffer">Stop Loss Buffer</label>
+                <input
+                  id="stop-loss-buffer"
+                  type="number"
+                  step="0.0001"
+                  value={strategyConfig.stop_buffer || DEFAULT_CONFIG.stop_buffer}
+                  onChange={(e) => handleConfigChange('stop_buffer', parseFloat(e.target.value) || DEFAULT_CONFIG.stop_buffer)}
+                />
               </div>
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label>Min Confluence Score</label>
-                <input type="number" value={strategyConfig.confluence_settings?.min_score || DEFAULT_CONFIG.min_confluence_score} onChange={(e) => handleConfigChange('confluence_settings', { ...strategyConfig.confluence_settings, min_score: parseInt(e.target.value) || DEFAULT_CONFIG.min_confluence_score })} />
+                <label htmlFor="min-confluence-score">Min Confluence Score</label>
+                <input
+                  id="min-confluence-score"
+                  type="number"
+                  value={strategyConfig.confluence_settings?.min_score || DEFAULT_CONFIG.min_confluence_score}
+                  onChange={(e) => handleConfigChange('confluence_settings', { ...strategyConfig.confluence_settings, min_score: parseInt(e.target.value) || DEFAULT_CONFIG.min_confluence_score })}
+                />
               </div>
             </div>
-          </div>
-
+          </section>
         </aside>
 
-        {/* Right Panel: Live Data & Trade Feed */}
         <section className="live-data-panel">
-          <h3>Live Feed</h3>
-
+          <h3 className="panel-title">Live Feed & Analytics</h3>
           {error && <div className="error-banner">{error}</div>}
 
           <div className="status-section">
-            <h4>Engine Status</h4>
+            <h4 className="status-section-title">Engine Status</h4>
             {engineStatus ? (
               <div className="engine-status-details">
-                <p>Symbol: {engineStatus.active_symbol}</p>
-                <p>Timeframe: {engineStatus.timeframe}</p>
-                <p>Running: {engineStatus.is_running ? 'Yes' : 'No'}</p>
-                <p>Trades Today: {engineStatus.daily_trades_today} / {engineStatus.max_daily_trades}</p>
+                <div className="status-grid">
+                  <div className="status-item"><span>Symbol:</span> <strong>{engineStatus.active_symbol}</strong></div>
+                  <div className="status-item"><span>Timeframe:</span> <strong>{engineStatus.active_timeframe}</strong></div>
+                  <div className="status-item"><span>Running:</span> <strong className={engineStatus.is_running ? 'text-positive' : 'text-muted'}>{engineStatus.is_running ? 'Active' : 'Stopped'}</strong></div>
+                  <div className="status-item"><span>Daily Quota:</span> <strong>{engineStatus.daily_trades_today} / {engineStatus.max_daily_trades}</strong></div>
+                </div>
                 {engineStatus.open_positions.length > 0 ? (
-                  <div>
+                  <div className="open-positions">
                     <h5>Open Positions:</h5>
                     <ul>
                       {engineStatus.open_positions.map((pos, index) => (
                         <li key={index}>
-                          {pos.direction.toUpperCase()} {pos.symbol} @ {formatPrice(pos.entry_price)} (SL: {formatPrice(pos.stop_loss)}, TP: {formatPrice(pos.take_profit)}) - PnL: {formatPrice(pos.pnl)} ({formatPercentage(pos.pnl_pct)})
+                          <span className={`badge-side ${pos.direction}`}>{pos.direction.toUpperCase()}</span>
+                          <span>{pos.symbol} @ {formatPrice(pos.entry_price)}</span>
+                          <span>SL: {formatPrice(pos.stop_loss)}</span>
+                          <span>TP: {formatPrice(pos.take_profit)}</span>
+                          <span className={pos.pnl >= 0 ? 'text-positive' : 'text-negative'}>PnL: {formatPrice(pos.pnl)} ({formatPercentage(pos.pnl_pct)})</span>
                         </li>
                       ))}
                     </ul>
                   </div>
                 ) : (
-                  <p>No open positions.</p>
+                  <p className="no-positions">No open positions currently active.</p>
                 )}
               </div>
             ) : (
-              <p>Loading engine status...</p>
+              <p>Connecting to engine status...</p>
             )}
           </div>
 
           <div className="trades-section">
-            <h4>Recent Paper Trades</h4>
-            {loading && <p>Loading trades...</p>}
-            {!loading && paperTrades.length === 0 ? (
-              <p>No trades executed yet.</p>
+            <h4 className="trades-section-title">Recent Paper Trades</h4>
+            {paperTrades.length === 0 ? (
+              <p className="no-trades">No paper trades executed in this session yet.</p>
             ) : (
-              <table className="trades-table">
-                <thead>
-                  <tr>
-                    <th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th><th>Return</th><th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paperTrades.map((trade) => (
-                    <tr key={trade.id}>
-                      <td>{trade.symbol}</td>
-                      <td>{trade.direction}</td>
-                      <td>{formatPrice(trade.entry_price)}</td>
-                      <td>{formatPrice(trade.exit_price)}</td>
-                      <td>{trade.exit_reason || 'N/A'}</td>
-                      <td className={trade.pnl !== null && trade.pnl >= 0 ? 'text-positive' : 'text-negative'}>{formatPrice(trade.pnl)}</td>
-                      <td className={trade.pnl_pct !== null && trade.pnl_pct >= 0 ? 'text-positive' : 'text-negative'}>{formatPercentage(trade.pnl_pct)}</td>
-                      <td>{new Date(trade.trade_date).toLocaleString()}</td>
+              <div className="trades-table-wrapper">
+                <table className="trades-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Entry</th>
+                      <th>Exit</th>
+                      <th>Reason</th>
+                      <th>PnL</th>
+                      <th>Return</th>
+                      <th>Date</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {paperTrades.map((trade) => (
+                      <tr key={trade.id}>
+                        <td><strong>{trade.symbol}</strong></td>
+                        <td><span className={`badge-side ${trade.direction.toLowerCase()}`}>{trade.direction}</span></td>
+                        <td>{formatPrice(trade.entry_price)}</td>
+                        <td>{formatPrice(trade.exit_price)}</td>
+                        <td>{trade.exit_reason || 'N/A'}</td>
+                        <td className={trade.pnl !== null && trade.pnl >= 0 ? 'text-positive' : 'text-negative'}>{formatPrice(trade.pnl)}</td>
+                        <td className={trade.pnl_pct !== null && trade.pnl_pct >= 0 ? 'text-positive' : 'text-negative'}>{formatPercentage(trade.pnl_pct)}</td>
+                        <td>{new Date(trade.trade_date).toLocaleTimeString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
           <div className="stats-section">
-             <h4>Backtest Performance</h4>
-             {journalStats ? (
-                 <div className="strategy-stats-grid">
-                    <div className="stat-box"><small>Total Return</small><strong className={journalStats.total_return >= 0 ? 'text-positive' : 'text-negative'}>{formatPercentage(journalStats.total_return)}</strong></div>
-                    <div className="stat-box"><small>Win Rate</small><strong>{formatPercentage(journalStats.win_rate)}</strong></div>
-                    <div className="stat-box"><small>Profit Factor</small><strong>{journalStats.profit_factor?.toFixed(2) || 'N/A'}</strong></div>
-                    <div className="stat-box"><small>Max Drawdown</small><strong className='text-negative'>-{journalStats.max_drawdown?.toFixed(2) || 'N/A'}%</strong></div>
-                    <div className="stat-box"><small>Sharpe Ratio</small><strong>{journalStats.sharpe?.toFixed(2) || 'N/A'}</strong></div>
-                    <div className="stat-box"><small>Total Trades</small><strong>{journalStats.total_trades || 0}</strong></div>
-                 </div>
-             ) : (
-                 <p>Loading stats...</p>
-             )}
-             <button onClick={() => runBacktest({ strategy: strategyConfig, symbol: symbol, timeframe: timeframe })} disabled={engineStatus?.is_running}>Run Backtest</button>
+            <h4 className="stats-section-title">Backtest Performance</h4>
+            {journalStats ? (
+              <div className="strategy-stats-grid">
+                <div className="stat-box"><small>Total Return</small><strong className={journalStats.total_return >= 0 ? 'text-positive' : 'text-negative'}>{formatPercentage(journalStats.total_return)}</strong></div>
+                <div className="stat-box"><small>Win Rate</small><strong>{formatPercentage(journalStats.win_rate)}</strong></div>
+                <div className="stat-box"><small>Profit Factor</small><strong>{journalStats.profit_factor?.toFixed(2) || 'N/A'}</strong></div>
+                <div className="stat-box"><small>Max Drawdown</small><strong className='text-negative'>-{journalStats.max_drawdown?.toFixed(2) || 'N/A'}%</strong></div>
+                <div className="stat-box"><small>Sharpe Ratio</small><strong>{journalStats.sharpe?.toFixed(2) || 'N/A'}</strong></div>
+                <div className="stat-box"><small>Total Trades</small><strong>{journalStats.total_trades || 0}</strong></div>
+              </div>
+            ) : (
+              <p>No backtest metrics computed yet.</p>
+            )}
+            <button onClick={() => runBacktest({ strategy: strategyConfig, symbol: symbol, timeframe: timeframe })} disabled={engineStatus?.is_running} className="run-backtest-btn">Run Backtest Simulation</button>
           </div>
         </section>
       </div>

@@ -11,6 +11,15 @@ export async function getJournalTrades(symbol?: string, outcome?: string, limit 
   return res.json();
 }
 
+export interface BacktestStats {
+  total_return: number;
+  win_rate: number;
+  profit_factor: number | null;
+  max_drawdown: number | null;
+  sharpe: number | null;
+  total_trades: number;
+}
+
 export async function getJournalStats(symbol?: string) {
   const params = new URLSearchParams();
   if (symbol) params.append('symbol', symbol);

@@ -13,12 +13,14 @@ export interface IndicatorStates {
 
 interface IndicatorMenuProps {
   indicators: IndicatorStates;
-  onToggle: (key: keyof IndicatorStates, value: boolean) => void;
+  onToggle?: (key: keyof IndicatorStates, value: boolean) => void;
+  onChange?: (key: keyof IndicatorStates, value: boolean) => void;
 }
 
-export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuProps) {
+export default function IndicatorMenu({ indicators, onToggle, onChange }: IndicatorMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const handleToggle = onToggle || onChange || (() => {});
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -56,12 +58,12 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               type="button"
               className="indicator-reset-btn"
               onClick={() => {
-                onToggle('showEMA20', true);
-                onToggle('showEMA50', true);
-                onToggle('showEMA200', true);
-                onToggle('showSupportResistance', true);
-                onToggle('showPatterns', true);
-                onToggle('showVolume', true);
+                handleToggle('showEMA20', true);
+                handleToggle('showEMA50', true);
+                handleToggle('showEMA200', true);
+                handleToggle('showSupportResistance', true);
+                handleToggle('showPatterns', true);
+                handleToggle('showVolume', true);
               }}
             >
               Reset All
@@ -76,7 +78,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showEMA20}
-                onChange={(e) => onToggle('showEMA20', e.target.checked)}
+                onChange={(e) => handleToggle('showEMA20', e.target.checked)}
               />
             </label>
             <label className="indicator-item">
@@ -85,7 +87,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showEMA50}
-                onChange={(e) => onToggle('showEMA50', e.target.checked)}
+                onChange={(e) => handleToggle('showEMA50', e.target.checked)}
               />
             </label>
             <label className="indicator-item">
@@ -94,7 +96,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showEMA200}
-                onChange={(e) => onToggle('showEMA200', e.target.checked)}
+                onChange={(e) => handleToggle('showEMA200', e.target.checked)}
               />
             </label>
           </div>
@@ -107,7 +109,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showSupportResistance}
-                onChange={(e) => onToggle('showSupportResistance', e.target.checked)}
+                onChange={(e) => handleToggle('showSupportResistance', e.target.checked)}
               />
             </label>
             <label className="indicator-item">
@@ -116,7 +118,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showPatterns}
-                onChange={(e) => onToggle('showPatterns', e.target.checked)}
+                onChange={(e) => handleToggle('showPatterns', e.target.checked)}
               />
             </label>
             <label className="indicator-item">
@@ -125,7 +127,7 @@ export default function IndicatorMenu({ indicators, onToggle }: IndicatorMenuPro
               <input
                 type="checkbox"
                 checked={indicators.showVolume}
-                onChange={(e) => onToggle('showVolume', e.target.checked)}
+                onChange={(e) => handleToggle('showVolume', e.target.checked)}
               />
             </label>
           </div>
