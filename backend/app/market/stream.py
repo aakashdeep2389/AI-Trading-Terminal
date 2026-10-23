@@ -11,6 +11,7 @@ from ..db.models import CandleRecord
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from ..core.config import settings
+from ..strategies.bollinger_bands import bb_strategy
 
 # Keyless public source for live ticks (gold-api.com / Binance). The 60s
 # streaming loop must never draw from the Twelve Data daily credit budget;
@@ -66,6 +67,7 @@ class MarketStream:
                 closed = self.aggs[(symbol,tf)].last_closed
                 if closed is not None:
                     await self._persist(symbol,tf,closed)
+                    await bb_strategy.on_candle_closed(symbol, tf, closed)
                     self.aggs[(symbol,tf)].last_closed = None
                 await self._persist(symbol,tf,candle)
             await asyncio.sleep(60) # Increased to 60s to respect free tier rate limit (8 calls/min)

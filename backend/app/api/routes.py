@@ -12,6 +12,7 @@ from ..market.realtime import hub
 from ..news.service import get_news
 from ..alerts.service import alerts, AlertCreate, AlertUpdate
 from ..db.database import get_db
+from ..integrations.telegram import telegram_client
 from ..auth.router import router as auth_router
 from ..auth.dependencies import get_current_active_user
 
@@ -164,6 +165,16 @@ async def evaluate_alerts(payload: dict, db: AsyncSession = Depends(get_db)):
         db
     )
     return {'fired': [f.model_dump() for f in fired]}
+
+@router.post('/telegram/test-notification')
+async def test_telegram_notification(
+    current_user: dict = Depends(get_current_active_user) # Protected endpoint
+):
+    """Send a test Telegram notification."""
+    success = await telegram_client.send_test_message()
+    if success:
+        return {'status': 'ok', 'message': 'Test Telegram message sent successfully.'}
+    raise HTTPException(status_code=500, detail='Failed to send test Telegram message. Check backend logs for details.')
 @router.websocket('/ws/market/{symbol}')
 async def market_ws(websocket:WebSocket,symbol:str,timeframe:str='1m'):
     await websocket.accept()

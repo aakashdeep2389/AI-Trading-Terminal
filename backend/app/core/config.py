@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     ai_base_url: str = Field('', validation_alias=AliasChoices('AI_BASE_URL', 'ANTHROPIC_BASE_URL'))
     ai_auth_token: str = Field('', validation_alias=AliasChoices('AI_AUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN'))
     ai_model: str = Field('', validation_alias=AliasChoices('AI_MODEL', 'ANTHROPIC_MODEL'))
+    telegram_bot_token: str = ''
+    telegram_chat_id: str = ''
+    telegram_enabled: bool = False
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
 settings = Settings()
