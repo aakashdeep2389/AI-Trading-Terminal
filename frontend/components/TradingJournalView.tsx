@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { exportJournalTrades, importJournalTrades } from '../api/journal';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -53,7 +54,42 @@ export default function TradingJournalView() {
   const [screenshot, setScreenshot] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
   const pasteContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleExport = async (format: 'csv' | 'json') => {
+    try {
+      const blob = await exportJournalTrades(format, filterSymbol || undefined, filterOutcome || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `journal_trades.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Export failed: ${message}`);
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const res = await importJournalTrades(file);
+      alert(`Import completed!\nImported: ${res.imported_count}\nFailed: ${res.failed_count}${res.failed_messages.length > 0 ? '\n\nErrors:\n' + res.failed_messages.join('\n') : ''}`);
+      // Refresh trades and stats
+      loadTrades();
+      loadStats();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Import failed: ${message}`);
+    } finally {
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  };
 
   const applyScreenshot = (file: File) => {
     setScreenshot(file);
@@ -207,6 +243,16 @@ export default function TradingJournalView() {
           <span className="journal-subtitle">Track, analyze, and improve your trading</span>
         </div>
         <div className="journal-actions">
+          <input
+            type="file"
+            ref={importFileRef}
+            accept=".csv,.json"
+            onChange={handleImportFile}
+            style={{ display: 'none' }}
+          />
+          <button className="btn-secondary" onClick={() => importFileRef.current?.click()}>📥 Import</button>
+          <button className="btn-secondary" onClick={() => handleExport('csv')}>📤 Export CSV</button>
+          <button className="btn-secondary" onClick={() => handleExport('json')}>📤 Export JSON</button>
           <button className="btn-secondary" onClick={() => setShowGallery(true)}>🖼️ Gallery</button>
           <button className="btn-primary" onClick={() => setShowModal(true)}>+ Add Trade</button>
         </div>

@@ -18,6 +18,8 @@ export interface CustomIndicatorConfig {
   params: Record<string, any>;
 }
 
+export type IndicatorConfig = CustomIndicatorConfig;
+
 export interface UniversalExitConfig {
   description: string;
   conditions: string[];

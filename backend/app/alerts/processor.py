@@ -6,6 +6,7 @@ from typing import Optional
 from ..db.database import async_session_maker
 from ..market.realtime import hub
 from .service import alerts
+from ..integrations.telegram import telegram_client
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +92,13 @@ class AlertProcessor:
                 # Evaluate price alerts
                 fired_alerts = await alerts.evaluate(symbol, 'price', float(price), db)
 
-                # If any alerts fired, publish to Redis for WebSocket clients
+                # If any alerts fired, process notifications
                 if fired_alerts:
                     for fired in fired_alerts:
+                        # Get full alert details to check notification channels
+                        alert_details = await alerts.get_by_id(fired.alert_id, db)
+                        channels = alert_details.notification_channels if alert_details else []
+
                         alert_notification = {
                             'alert_id': fired.alert_id,
                             'symbol': fired.symbol,
@@ -102,10 +107,14 @@ class AlertProcessor:
                             'condition_value': fired.condition_value,
                             'direction': fired.direction,
                             'fired_at': fired.fired_at.isoformat(),
-                            'message': f"{symbol} {fired.condition_type} crossed {fired.direction} {fired.condition_value}"
+                            'message': f"{fired.symbol} {fired.condition_type} crossed {fired.direction} {fired.condition_value}"
                         }
 
-                        # Publish to Redis for WebSocket distribution
+                        # 1. Direct Telegram Notification
+                        if 'telegram' in channels:
+                            await telegram_client.send_message(f"🚨 <b>ALERT FIRED</b> 🚨\n\n{alert_notification['message']}")
+
+                        # 2. Publish to Redis for WebSocket distribution
                         await hub.publish('ALERTS', 'notifications', alert_notification)
 
                         logger.info(f"Alert fired: {alert_notification['message']}")

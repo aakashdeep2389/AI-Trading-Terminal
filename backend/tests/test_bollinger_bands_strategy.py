@@ -44,3 +44,21 @@ def test_bollinger_bands_touch_invalid():
 
     strategy.process_5m_candles(symbol, candles)
     assert symbol not in strategy.sell_alerts
+
+def test_bollinger_bands_breakout():
+    strategy = BollingerBandsStrategy()
+    symbol = "BTCUSDT"
+
+    candles = []
+    base_time = 1700000000
+    for i in range(25):
+        candles.append(Candle(time=base_time + i * 300, open=100.0, high=105.0, low=95.0, close=100.0))
+
+    # Upper breakout candle (close > upper band)
+    candles.append(Candle(time=base_time + 25 * 300, open=100.0, high=120.0, low=99.0, close=115.0))
+
+    breakout = strategy.check_bollinger_breakout(symbol, candles)
+    assert breakout is not None
+    assert breakout["breakout_type"] == "UPPER"
+    assert breakout["close"] == 115.0
+

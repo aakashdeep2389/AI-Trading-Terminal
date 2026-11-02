@@ -53,6 +53,7 @@ class BollingerBandsStrategy:
         self.sell_alerts: Dict[str, SellAlertState] = {}
         self.buy_alerts: Dict[str, BuyAlertState] = {}
         self.processed_signals: set = set()
+        self.history: Dict[str, List[Candle]] = {}
 
     def process_5m_candles(self, symbol: str, candles_5m: List[Candle]) -> Optional[dict]:
         """
@@ -181,6 +182,54 @@ class BollingerBandsStrategy:
 
         return None
 
+    def check_bollinger_breakout(self, symbol: str, candles: List[Candle], timeframe: str = "5m") -> Optional[dict]:
+        if len(candles) < 21:
+            return None
+
+        closes = [c.close for c in candles]
+        bb = bollinger_bands(closes, period=20, num_std=1.4)
+        upper = bb['upper']
+        lower = bb['lower']
+
+        if upper[-1] is None or lower[-1] is None:
+            return None
+
+        last_candle = candles[-1]
+
+        if last_candle.close > upper[-1]:
+            return {
+                "symbol": symbol,
+                "breakout_type": "UPPER",
+                "timeframe": timeframe,
+                "timestamp": last_candle.time,
+                "close": last_candle.close,
+                "band_value": upper[-1]
+            }
+        elif last_candle.close < lower[-1]:
+            return {
+                "symbol": symbol,
+                "breakout_type": "LOWER",
+                "timeframe": timeframe,
+                "timestamp": last_candle.time,
+                "close": last_candle.close,
+                "band_value": lower[-1]
+            }
+
+        return None
+
+    async def on_candle_closed(self, symbol: str, timeframe: str, candle: Candle):
+        key = f"{symbol}_{timeframe}"
+        if key not in self.history:
+            self.history[key] = []
+
+        self.history[key].append(candle)
+        if len(self.history[key]) > 50: # Keep a reasonable buffer
+            self.history[key].pop(0)
+
+        breakout = self.check_bollinger_breakout(symbol, self.history[key], timeframe=timeframe)
+        if breakout:
+            await self.notify_breakout(breakout)
+
     async def notify_signal(self, signal: dict):
         """
         Sends formatted Telegram notification for a confirmed signal using HTML formatting.
@@ -198,6 +247,21 @@ class BollingerBandsStrategy:
             f"• <b>Entry Reference:</b> <code>{signal['entry']}</code>\n"
             f"• <b>Stop Loss:</b> <code>{signal['stop_loss']}</code>\n"
             f"• <b>Target:</b> <code>{signal['target']}</code>\n"
+        )
+        await telegram_client.send_message(msg)
+
+    async def notify_breakout(self, breakout: dict):
+        dt_str = datetime.utcfromtimestamp(breakout["timestamp"]).strftime('%Y-%m-%d %H:%M:%S UTC')
+        type_emoji = "🚀" if breakout["breakout_type"] == "UPPER" else "📉"
+
+        msg = (
+            f"⚡ <b>BOLLINGER BAND BREAKOUT</b> ⚡\n\n"
+            f"• <b>Symbol:</b> <code>{breakout['symbol']}</code>\n"
+            f"• <b>Type:</b> {type_emoji} <b>{breakout['breakout_type']} BAND BREAKOUT</b>\n"
+            f"• <b>Timeframe:</b> <code>{breakout['timeframe']}</code>\n"
+            f"• <b>Time:</b> <code>{dt_str}</code>\n"
+            f"• <b>Close Price:</b> <code>{breakout['close']}</code>\n"
+            f"• <b>Band Value:</b> <code>{round(breakout['band_value'], 4)}</code>\n"
         )
         await telegram_client.send_message(msg)
 

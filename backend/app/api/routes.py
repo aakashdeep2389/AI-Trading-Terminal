@@ -175,6 +175,22 @@ async def test_telegram_notification(
     if success:
         return {'status': 'ok', 'message': 'Test Telegram message sent successfully.'}
     raise HTTPException(status_code=500, detail='Failed to send test Telegram message. Check backend logs for details.')
+
+@router.post('/telegram/evaluate-bollinger/{symbol}')
+async def evaluate_bollinger_breakout(
+    symbol: str,
+    timeframe: str = Query('1m'),
+):
+    from ..strategies.bollinger_bands import bb_strategy, Candle
+    candles_data = await get_candles(symbol, timeframe, 300, refresh=True)
+    # Map market.models.Candle to strategies.bollinger_bands.Candle
+    candles = [Candle(time=c.time, open=c.open, high=c.high, low=c.low, close=c.close, volume=c.volume) for c in candles_data]
+    breakout = bb_strategy.check_bollinger_breakout(symbol.upper(), candles, timeframe=timeframe)
+    if breakout:
+        await bb_strategy.notify_breakout(breakout)
+        return {"status": "breakout_detected", "breakout": breakout}
+    return {"status": "no_breakout", "message": "Latest candle is within Bollinger Bands"}
+
 @router.websocket('/ws/market/{symbol}')
 async def market_ws(websocket:WebSocket,symbol:str,timeframe:str='1m'):
     await websocket.accept()
