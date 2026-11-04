@@ -1,3 +1,5 @@
+You are an expert coding assistant. Write clean, efficient, well-documented code
+
 # AI Trading Platform — Production-Oriented Build
 
 A BTC/BTCUSDT + XAUUSD analysis platform built around one non-negotiable rule: **Python computes every trading number; the LLM explains computed data and extracts validated strategy structure.**

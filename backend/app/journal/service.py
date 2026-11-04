@@ -1,10 +1,15 @@
 import os
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, UploadFile, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
+import pandas as pd
+from io import StringIO
+import json
+from pydantic import BaseModel, ValidationError, Field
 from ..db.database import get_db
 from ..db.models import JournalTrade
 
@@ -174,6 +179,163 @@ def _safe(value):
     return value
 
 
+class ImportTradeSchema(BaseModel):
+    symbol: str
+    direction: str
+    entry_price: float
+    position_size: float = Field(default=1.0)
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    exit_price: Optional[float] = None
+    strategy_tag: Optional[str] = None
+    timeframe: Optional[str] = None
+    emotion: Optional[str] = None
+    notes: Optional[str] = None
+    screenshot_path: Optional[str] = None
+    trade_date: datetime
+    pnl: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    outcome: Optional[str] = None
+
+    class Config:
+        extra = 'ignore'
+
+
+async def export_trades_to_format(symbol: Optional[str], outcome: Optional[str], format: str, db: AsyncSession) -> str:
+    trades: List[JournalTrade] = await JournalService.get_all(db, symbol=symbol, outcome=outcome, limit=None)
+
+    if not trades:
+        if format.lower() == 'csv':
+            return "symbol,direction,entry_price,exit_price,position_size,stop_loss,take_profit,pnl,pnl_pct,outcome,strategy_tag,timeframe,emotion,notes,screenshot_path,trade_date\n"
+        elif format.lower() == 'json':
+            return "[]"
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+
+    trade_dicts = []
+    for trade in trades:
+        trade_dict = {}
+        for column in JournalTrade.__table__.columns:
+            value = getattr(trade, column.name)
+            if isinstance(value, datetime):
+                value = value.isoformat()
+            trade_dict[column.name] = value
+        trade_dicts.append(trade_dict)
+
+    df = pd.DataFrame(trade_dicts)
+    column_order = [
+        'id', 'symbol', 'direction', 'entry_price', 'exit_price', 'position_size',
+        'stop_loss', 'take_profit', 'pnl', 'pnl_pct', 'outcome', 'strategy_tag',
+        'timeframe', 'emotion', 'notes', 'screenshot_path', 'trade_date',
+        'created_at', 'updated_at'
+    ]
+    existing_columns_in_order = [col for col in column_order if col in df.columns]
+    df = df[existing_columns_in_order]
+
+    if format.lower() == 'csv':
+        output = StringIO()
+        df.to_csv(output, index=False)
+        return output.getvalue()
+    elif format.lower() == 'json':
+        return df.to_json(orient='records', indent=2)
+    else:
+        raise ValueError(f"Unsupported format: {format}")
+
+
+async def import_trades_from_file(file, db: AsyncSession) -> Dict[str, Any]:
+    content = await file.read()
+    filename = file.filename.lower()
+
+    imported_count = 0
+    failed_count = 0
+    failed_messages = []
+
+    try:
+        if filename.endswith('.csv'):
+            data_io = StringIO(content.decode('utf-8'))
+            df = pd.read_csv(data_io)
+            records = df.to_dict(orient='records')
+        elif filename.endswith('.json'):
+            parsed_json = json.loads(content)
+            if isinstance(parsed_json, list):
+                records = parsed_json
+            elif isinstance(parsed_json, dict):
+                # Check common keys or wrap single trade dict
+                if "trades" in parsed_json and isinstance(parsed_json["trades"], list):
+                    records = parsed_json["trades"]
+                elif "data" in parsed_json and isinstance(parsed_json["data"], list):
+                    records = parsed_json["data"]
+                elif "symbol" in parsed_json:
+                    records = [parsed_json]
+                else:
+                    # Look for any list in the dict values
+                    found_list = next((v for v in parsed_json.values() if isinstance(v, list)), None)
+                    if found_list is not None:
+                        records = found_list
+                    else:
+                        raise ValueError("JSON object must contain a list of trades or a single trade object.")
+            else:
+                raise ValueError("Invalid JSON format.")
+        else:
+            raise ValueError("Unsupported file format. Please upload CSV or JSON.")
+
+        for i, record in enumerate(records):
+            try:
+                # Map keys from incoming JSON to our schema
+                mapping = {
+                    'instrument': 'symbol',
+                    'quantity': 'position_size',
+                    'strategy': 'strategy_tag'
+                }
+                for old_key, new_key in mapping.items():
+                    if old_key in record and new_key not in record:
+                        record[new_key] = record.pop(old_key)
+
+                cleaned_record = {}
+                for k, v in record.items():
+                    if v == "" or (isinstance(v, (list, pd.Series)) and len(v) == 0) or (not isinstance(v, (list, pd.Series)) and pd.isna(v)):
+                        cleaned_record[k] = None
+                    else:
+                        cleaned_record[k] = v
+                if 'trade_date' in cleaned_record and cleaned_record['trade_date']:
+                    cleaned_record['trade_date'] = str(cleaned_record['trade_date'])
+
+                trade_data = ImportTradeSchema(**cleaned_record)
+
+                await JournalService.create_trade(
+                    symbol=trade_data.symbol,
+                    direction=trade_data.direction,
+                    entry_price=trade_data.entry_price,
+                    position_size=trade_data.position_size,
+                    stop_loss=trade_data.stop_loss,
+                    take_profit=trade_data.take_profit,
+                    exit_price=trade_data.exit_price,
+                    strategy_tag=trade_data.strategy_tag,
+                    timeframe=trade_data.timeframe,
+                    emotion=trade_data.emotion,
+                    notes=trade_data.notes,
+                    screenshot_path=trade_data.screenshot_path,
+                    trade_date=trade_data.trade_date,
+                    db=db,
+                )
+                imported_count += 1
+            except ValidationError as e:
+                failed_count += 1
+                failed_messages.append(f"Row {i+1}: Validation error - {e.errors()}")
+            except Exception as e:
+                failed_count += 1
+                failed_messages.append(f"Row {i+1}: Import error - {str(e)}")
+
+    except ValueError as e:
+        failed_count += 1
+        failed_messages.append(f"File processing error: {str(e)}")
+    except Exception as e:
+        failed_count += 1
+        failed_messages.append(f"Unexpected error processing file: {str(e)}")
+
+    return {"imported_count": imported_count, "failed_count": failed_count, "failed_messages": failed_messages}
+
+
 # Routes
 @router.post("/journal/trades")
 async def create_journal_trade(
@@ -282,3 +444,45 @@ async def delete_journal_trade(trade_id: int, db: AsyncSession = Depends(get_db)
     if not success:
         raise HTTPException(status_code=404, detail="Trade not found")
     return {"success": True}
+
+
+@router.get("/journal/export")
+async def export_journal_trades(
+    symbol: Optional[str] = None,
+    outcome: Optional[str] = None,
+    format: str = 'csv',
+    db: AsyncSession = Depends(get_db)
+):
+    if format.lower() not in ['csv', 'json']:
+        raise HTTPException(status_code=400, detail="Format must be 'csv' or 'json'")
+
+    try:
+        data = await export_trades_to_format(symbol=symbol, outcome=outcome, format=format, db=db)
+        filename = f"journal_trades.{format}"
+        headers = {
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": f"text/{format}" if format == 'csv' else "application/json",
+        }
+        return Response(content=data, headers=headers, media_type=f"text/{format}" if format == 'csv' else "application/json")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred during export: {e}")
+
+
+@router.post("/journal/import", status_code=200)
+async def import_journal_trades(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not file.filename.lower().endswith(('.csv', '.json')):
+        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV or JSON.")
+
+    try:
+        result = await import_trades_from_file(file, db)
+        return result
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred during import: {e}")
+
