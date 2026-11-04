@@ -278,15 +278,24 @@ class BollingerBandsStrategy:
         if signal:
             await self.notify_signal(signal)
 
-        breakout = self.check_bollinger_breakout(symbol, candles, timeframe=timeframe)
-        if breakout:
-            await self.notify_breakout(breakout)
+        # Bollinger Telegram notifications are intentionally limited to the
+        # strategy timeframes: sell alerts on 5m and buy alerts on 15m.
+        if timeframe in ("5m", "15m"):
+            breakout = self.check_bollinger_breakout(symbol, candles, timeframe=timeframe)
+            if breakout:
+                await self.notify_breakout(breakout)
 
         if settings.candle_close_notifications_enabled:
             await self.notify_candle_close(symbol, timeframe, candle)
 
     async def notify_candle_close(self, symbol: str, timeframe: str, candle: Candle):
-        """Send a Telegram notification for every completed candle."""
+        """Send an explicitly requested candle notification, if enabled."""
+        if not settings.candle_close_notifications_enabled:
+            return
+        if timeframe not in ("5m", "15m"):
+            logger.info('Ignoring non-strategy timeframe candle notification: %s %s', symbol, timeframe)
+            return
+
         dt_str = datetime.utcfromtimestamp(candle.time).strftime('%Y-%m-%d %H:%M:%S UTC')
         direction = "🟢 Bullish" if candle.close >= candle.open else "🔴 Bearish"
 
@@ -324,6 +333,9 @@ class BollingerBandsStrategy:
 
     async def notify_signal(self, signal: dict):
         """Send a confirmed Bollinger MTF signal through the Telegram client."""
+        if signal.get('timeframe') not in ('5m', '15m/5m'):
+            logger.warning('Ignoring Bollinger signal on unsupported timeframe: %s', signal.get('timeframe'))
+            return
         dt_str = datetime.utcfromtimestamp(signal["timestamp"]).strftime('%Y-%m-%d %H:%M:%S UTC')
         direction_emoji = "🟢" if signal["direction"] == "BUY" else "🔴"
 
