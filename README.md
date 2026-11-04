@@ -18,10 +18,12 @@ A BTC/BTCUSDT + XAUUSD analysis platform built around one non-negotiable rule: *
 The repository is **not yet connected to a paid/real market-data provider, production database persistence, authentication, external news, or an LLM provider**. Demo market data is explicitly used so the application remains runnable without credentials. No real-money order execution is implemented.
 
 ## Run
+docker compose up postgres redis
 ```bash
 cd backend
 python -m venv .venv
-# activate the venv
+# Activate environment
+venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
