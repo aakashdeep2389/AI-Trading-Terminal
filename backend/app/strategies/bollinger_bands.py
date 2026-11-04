@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.engine.indicators import bollinger_bands
 from app.integrations.telegram import telegram_client
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +106,8 @@ class BollingerBandsStrategy:
                         }
                         self.sell_alerts.pop(symbol, None)
 
-        # Check for new 5m Sell Alert (high < upper_band, touching is invalid)
-        # Only set if not already awaiting confirmation, AND we didn't just confirm a signal on this candle
+        # Check for new 5m Sell Alert (high < upper_band, touching is invalid).
+        # The alert is sent once when this completed 5m candle qualifies.
         if upper[-1] is not None:
             if last_candle.high < upper[-1]:
                 if (symbol not in self.sell_alerts or self.sell_alerts[symbol].status != "AWAITING_CONFIRMATION") and \
@@ -170,7 +171,8 @@ class BollingerBandsStrategy:
                     buy_state.status = "AWAITING_5M_CONFIRMATION"
                     buy_state.breakout_15m_high = last_candle.high
 
-        # Check for new 15m Buy Alert (low > lower_band, touching is invalid)
+        # Check for new 15m Buy Alert (low > lower_band, touching is invalid).
+        # The alert is emitted once when this completed 15m candle qualifies.
         if lower[-1] is not None:
             if last_candle.low > lower[-1]:
                 self.buy_alerts[symbol] = BuyAlertState(
@@ -179,6 +181,16 @@ class BollingerBandsStrategy:
                     alert_candle_high=last_candle.high,
                     alert_candle_low=last_candle.low
                 )
+                return {
+                    "symbol": symbol,
+                    "direction": "BUY_ALERT",
+                    "timeframe": "15m",
+                    "timestamp": last_candle.time,
+                    "entry": round(last_candle.close, 4),
+                    "stop_loss": round(last_candle.low, 4),
+                    "target": None,
+                    "strategy": "Bollinger Bands MTF"
+                }
 
         return None
 
@@ -226,14 +238,92 @@ class BollingerBandsStrategy:
         if len(self.history[key]) > 50: # Keep a reasonable buffer
             self.history[key].pop(0)
 
-        breakout = self.check_bollinger_breakout(symbol, self.history[key], timeframe=timeframe)
+        candles = self.history[key]
+
+        # Run the actual MTF strategy only on its completed candle timeframes.
+        # The generic breakout check below is kept as a separate notification.
+        signal = None
+        alert = None
+        if timeframe == "15m":
+            previous_alert_time = self.buy_alerts.get(symbol).alert_candle_time if symbol in self.buy_alerts else None
+            signal = self.process_15m_candles(symbol, candles)
+            state = self.buy_alerts.get(symbol)
+            if state and state.alert_candle_time != previous_alert_time and state.alert_candle_time == candle.time:
+                alert = {
+                    "symbol": symbol,
+                    "direction": "BUY",
+                    "timeframe": "15m",
+                    "timestamp": candle.time,
+                    "close": candle.close,
+                    "alert_price": state.alert_candle_low,
+                    "strategy": "Bollinger Bands MTF",
+                }
+        elif timeframe == "5m":
+            previous_alert_time = self.sell_alerts.get(symbol).alert_candle_time if symbol in self.sell_alerts else None
+            signal = self.process_5m_candles(symbol, candles)
+            state = self.sell_alerts.get(symbol)
+            if state and state.alert_candle_time != previous_alert_time and state.alert_candle_time == candle.time:
+                alert = {
+                    "symbol": symbol,
+                    "direction": "SELL",
+                    "timeframe": "5m",
+                    "timestamp": candle.time,
+                    "close": candle.close,
+                    "alert_price": state.alert_candle_high,
+                    "strategy": "Bollinger Bands MTF",
+                }
+
+        if alert:
+            await self.notify_alert(alert)
+        if signal:
+            await self.notify_signal(signal)
+
+        breakout = self.check_bollinger_breakout(symbol, candles, timeframe=timeframe)
         if breakout:
             await self.notify_breakout(breakout)
 
+        if settings.candle_close_notifications_enabled:
+            await self.notify_candle_close(symbol, timeframe, candle)
+
+    async def notify_candle_close(self, symbol: str, timeframe: str, candle: Candle):
+        """Send a Telegram notification for every completed candle."""
+        dt_str = datetime.utcfromtimestamp(candle.time).strftime('%Y-%m-%d %H:%M:%S UTC')
+        direction = "🟢 Bullish" if candle.close >= candle.open else "🔴 Bearish"
+
+        msg = (
+            f"🕯️ <b>CANDLE CLOSED</b>\n\n"
+            f"• <b>Symbol:</b> <code>{symbol}</code>\n"
+            f"• <b>Timeframe:</b> <code>{timeframe}</code>\n"
+            f"• <b>Time:</b> <code>{dt_str}</code>\n"
+            f"• <b>Direction:</b> {direction}\n"
+            f"• <b>Open:</b> <code>{candle.open}</code>\n"
+            f"• <b>High:</b> <code>{candle.high}</code>\n"
+            f"• <b>Low:</b> <code>{candle.low}</code>\n"
+            f"• <b>Close:</b> <code>{candle.close}</code>\n"
+            f"• <b>Volume:</b> <code>{candle.volume}</code>"
+        )
+        sent = await telegram_client.send_message(msg)
+        if not sent:
+            logger.warning('Candle-close Telegram notification was not sent for %s %s', symbol, timeframe)
+
+    async def notify_alert(self, alert: dict):
+        """Send the initial timeframe-specific Bollinger alert."""
+        dt_str = datetime.utcfromtimestamp(alert['timestamp']).strftime('%Y-%m-%d %H:%M:%S UTC')
+        emoji = '🟢' if alert['direction'] == 'BUY' else '🔴'
+        msg = (
+            f"{emoji} <b>BOLLINGER {alert['direction']} ALERT</b>\n\n"
+            f"• <b>Symbol:</b> <code>{alert['symbol']}</code>\n"
+            f"• <b>Timeframe:</b> <code>{alert['timeframe']}</code>\n"
+            f"• <b>Time:</b> <code>{dt_str}</code>\n"
+            f"• <b>Close:</b> <code>{alert['close']}</code>\n"
+            f"• <b>Alert price:</b> <code>{alert['alert_price']}</code>"
+        )
+        sent = await telegram_client.send_message(msg)
+        if not sent:
+            logger.warning('Bollinger alert Telegram notification was not sent for %s', alert['symbol'])
+
     async def notify_signal(self, signal: dict):
-        """
-        Sends formatted Telegram notification for a confirmed signal using HTML formatting.
-        """
+        """Send a confirmed Bollinger MTF signal through the Telegram client."""
         dt_str = datetime.utcfromtimestamp(signal["timestamp"]).strftime('%Y-%m-%d %H:%M:%S UTC')
         direction_emoji = "🟢" if signal["direction"] == "BUY" else "🔴"
 
@@ -248,7 +338,9 @@ class BollingerBandsStrategy:
             f"• <b>Stop Loss:</b> <code>{signal['stop_loss']}</code>\n"
             f"• <b>Target:</b> <code>{signal['target']}</code>\n"
         )
-        await telegram_client.send_message(msg)
+        sent = await telegram_client.send_message(msg)
+        if not sent:
+            logger.warning('Bollinger signal Telegram notification was not sent for %s', signal.get('symbol'))
 
     async def notify_breakout(self, breakout: dict):
         dt_str = datetime.utcfromtimestamp(breakout["timestamp"]).strftime('%Y-%m-%d %H:%M:%S UTC')

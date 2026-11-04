@@ -16,8 +16,15 @@ class TelegramClient:
 
     async def send_message(self, text: str, disable_notification: bool = False) -> bool:
         if not self.enabled or not self.bot_token or not self.chat_id:
-            logger.debug("Telegram notifications are disabled or not configured.")
+            logger.warning(
+                "Telegram notification skipped: enabled=%s token_configured=%s chat_configured=%s",
+                self.enabled,
+                bool(self.bot_token),
+                bool(self.chat_id),
+            )
             return False
+
+        logger.info("Sending Telegram notification to configured chat")
 
         url = f"{self.base_url}/sendMessage"
         payload = {

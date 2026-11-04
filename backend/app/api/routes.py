@@ -9,6 +9,7 @@ from ..engine.backtesting import backtest
 from ..strategies.service import parse_strategy_intent, validate_strategy
 from ..strategies.schemas import StrategySchema
 from ..market.realtime import hub
+from ..market.stream import stream
 from ..news.service import get_news
 from ..alerts.service import alerts, AlertCreate, AlertUpdate
 from ..db.database import get_db
@@ -38,6 +39,15 @@ async def candles(
 async def tick(symbol): return (await get_tick(symbol)).model_dump(mode='json')
 @router.get('/market/status')
 async def market_status(): return {**provider_status(), 'redis': hub.redis_available}
+
+@router.get('/market/stream-status')
+async def market_stream_status():
+    """Expose stream health and candle-close diagnostics for local debugging."""
+    return {**stream.status(), 'telegram': {
+        'enabled': telegram_client.enabled,
+        'token_configured': bool(telegram_client.bot_token),
+        'chat_configured': bool(telegram_client.chat_id),
+    }}
 @router.get('/news/{symbol}')
 async def news(symbol: str, limit: int = Query(20, ge=1, le=100)):
     return await get_news(symbol, limit)
@@ -175,6 +185,31 @@ async def test_telegram_notification(
     if success:
         return {'status': 'ok', 'message': 'Test Telegram message sent successfully.'}
     raise HTTPException(status_code=500, detail='Failed to send test Telegram message. Check backend logs for details.')
+
+@router.post('/telegram/candle-notification')
+async def send_candle_notification(
+    payload: dict,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Send one displayed candle-close event to Telegram on explicit user action."""
+    from ..strategies.bollinger_bands import Candle, bb_strategy
+
+    try:
+        symbol = str(payload['symbol']).upper()
+        timeframe = str(payload['timeframe'])
+        candle = Candle(
+            time=int(payload['time']),
+            open=float(payload['open']),
+            high=float(payload['high']),
+            low=float(payload['low']),
+            close=float(payload['close']),
+            volume=float(payload.get('volume', 0)),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f'Invalid candle payload: {exc}') from exc
+
+    await bb_strategy.notify_candle_close(symbol, timeframe, candle)
+    return {'status': 'ok', 'message': 'Candle notification sent successfully.'}
 
 @router.post('/telegram/evaluate-bollinger/{symbol}')
 async def evaluate_bollinger_breakout(

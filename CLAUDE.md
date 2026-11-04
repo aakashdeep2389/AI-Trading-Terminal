@@ -15,6 +15,10 @@ Terminal 3 (Frontend): cd frontend && npm run dev
 
 **Python computes every trading number. The LLM only explains or narrates pre-computed data.** Never move calculations into the AI layer. See `AGENT_RULES.md` for the full list of invariants — read it before any architectural change. Read `planning.md` before making structural changes.
 
+## Required development workflow
+
+For all feature changes, bug fixes, and refactors, read and follow the repository-root `SKILL.md` guidelines. Also follow `AGENT_RULES.md`; read `planning.md` before making structural or architectural changes.
+
 ## Commands
 
 **Backend**

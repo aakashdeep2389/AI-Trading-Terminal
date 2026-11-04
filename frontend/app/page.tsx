@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
 import {
   alertNotificationSchema,
   type Alert,
@@ -26,6 +27,18 @@ export interface AlertToast {
   message: string;
 }
 
+interface CandleCloseToast {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export default function Home() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('15m');
@@ -33,6 +46,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertNotifications, setAlertNotifications] = useState<AlertToast[]>([]);
+  const [candleNotificationsEnabled, setCandleNotificationsEnabled] = useState(false);
+  const [telegramSendingId, setTelegramSendingId] = useState<string | null>(null);
+  const [telegramStatus, setTelegramStatus] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'tradingview'>('lightweight');
   const [activeTab, setActiveTab] = useState<'chart' | 'strategies' | 'testing' | 'journal'>('chart');
@@ -46,6 +62,79 @@ export default function Home() {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  const handleCandleClosed = useCallback((event: { symbol?: string; timeframe?: string; data?: Omit<CandleCloseToast, 'id' | 'symbol' | 'timeframe'> }) => {
+    if (!candleNotificationsEnabled || !event.data || !event.symbol || !event.timeframe) return;
+    const notification: CandleCloseToast = {
+      id: `${event.symbol}-${event.timeframe}-${event.data.time}`,
+      symbol: event.symbol,
+      timeframe: event.timeframe,
+      ...event.data,
+    };
+    toast(
+      <div className="candle-toast">
+        <div>
+          🕯️ <strong>{notification.symbol} {notification.timeframe}</strong> candle closed — close {notification.close}
+        </div>
+        <button
+          type="button"
+          onClick={() => sendCandleToTelegram(notification)}
+          disabled={telegramSendingId === notification.id}
+        >
+          {telegramSendingId === notification.id ? 'Sending…' : 'Send Telegram'}
+        </button>
+      </div>,
+      { toastId: notification.id }
+    );
+  }, [candleNotificationsEnabled]);
+
+  const stopCandleNotifications = () => {
+    setCandleNotificationsEnabled(false);
+    toast.dismiss('candle-notification-controls');
+  };
+
+  const resumeCandleNotifications = () => {
+    setCandleNotificationsEnabled(true);
+  };
+
+  useEffect(() => {
+    toast(
+      <div className="candle-toast">
+        <strong>1-minute candle notifications</strong>
+        <span>{candleNotificationsEnabled ? 'Running' : 'Stopped'}</span>
+        <button
+          type="button"
+          onClick={candleNotificationsEnabled ? stopCandleNotifications : resumeCandleNotifications}
+        >
+          {candleNotificationsEnabled ? 'Stop' : 'Resume'}
+        </button>
+      </div>,
+      {
+        toastId: 'candle-notification-controls',
+        autoClose: false,
+        closeButton: true,
+      }
+    );
+  }, [candleNotificationsEnabled]);
+
+  const sendCandleToTelegram = async (candle: CandleCloseToast) => {
+    setTelegramSendingId(candle.id);
+    setTelegramStatus(null);
+    try {
+      const response = await fetch(`${API}/api/telegram/candle-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(candle),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || 'Telegram notification failed');
+      setTelegramStatus(`${candle.symbol} ${candle.timeframe} notification sent.`);
+    } catch (error) {
+      setTelegramStatus(error instanceof Error ? error.message : 'Telegram notification failed');
+    } finally {
+      setTelegramSendingId(null);
+    }
+  };
 
   const toggleFullscreen = async () => {
     if (!chartContainerRef.current) return;
@@ -344,6 +433,12 @@ export default function Home() {
         </section>
       )}
 
+      {telegramStatus && (
+        <section className="alert-notifications">
+          <div className="alert-notification">{telegramStatus}</div>
+        </section>
+      )}
+
       {/* Dynamic Tab Views */}
       {activeTab === 'chart' && (
         <div className="terminal-dashboard">
@@ -409,7 +504,13 @@ export default function Home() {
 
             <div className="chart-viewport-card">
               {chartEngine === 'lightweight' ? (
-                <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} />
+                <MarketChart
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  indicators={indicators}
+                  theme={theme}
+                  onCandleClosed={handleCandleClosed}
+                />
               ) : (
                 <TradingViewWidget symbol={symbol} timeframe={timeframe} theme={theme} />
               )}

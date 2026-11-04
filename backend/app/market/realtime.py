@@ -31,6 +31,10 @@ class RealtimeHub:
         payload = json.dumps({'type':'candle','symbol':symbol.upper(),'timeframe':timeframe,'data':candle.model_dump()})
         await self._publish(self.channel(symbol,timeframe), payload)
 
+    async def publish_candle_closed(self, symbol: str, timeframe: str, candle: Candle):
+        payload = json.dumps({'type':'candle_closed','symbol':symbol.upper(),'timeframe':timeframe,'data':candle.model_dump()})
+        await self._publish(self.channel(symbol,timeframe), payload)
+
     async def _publish(self, channel: str, payload: str):
         for queue in tuple(self._local_subscribers[channel]):
             if queue.full():

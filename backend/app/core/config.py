@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ''
     telegram_chat_id: str = ''
     telegram_enabled: bool = False
+    candle_close_notifications_enabled: bool = False
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
 settings = Settings()

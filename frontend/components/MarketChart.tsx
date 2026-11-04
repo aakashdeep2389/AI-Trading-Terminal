@@ -37,6 +37,7 @@ interface MarketChartProps {
   showPatterns?: boolean;
   showVolume?: boolean;
   indicators?: IndicatorStates;
+  onCandleClosed?: (event: CandleCloseEvent) => void;
 }
 
 interface BackendSeries {
@@ -56,6 +57,13 @@ interface StreamCandle {
   low: number;
   close: number;
   volume: number;
+}
+
+interface CandleCloseEvent {
+  type?: string;
+  symbol?: string;
+  timeframe?: string;
+  data?: StreamCandle;
 }
 
 /**
@@ -78,6 +86,7 @@ export default function MarketChart({
   showPatterns,
   showVolume,
   indicators,
+  onCandleClosed,
 }: MarketChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -199,6 +208,10 @@ export default function MarketChart({
         try {
           message = JSON.parse(event.data as string);
         } catch { return; }
+        if (message?.type === 'candle_closed' && message.data) {
+          onCandleClosed?.(message as CandleCloseEvent);
+          return;
+        }
         if (message?.type !== 'candle' || !message.data) return;
 
         const { time, open, high, low, close, volume } = message.data;

@@ -1121,6 +1121,27 @@ main {
   gap: 8px;
 }
 
+.candle-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(420px, calc(100vw - 48px));
+  font-size: 13px;
+}
+
+.candle-toast > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.candle-toast button {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
 .alert-notification {
   background: linear-gradient(135deg, rgba(255,61,90,0.9), rgba(200,20,50,0.9));
   color: #fff;
