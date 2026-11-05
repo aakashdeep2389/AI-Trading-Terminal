@@ -56,18 +56,28 @@ const riskSchema = z.object({
   entry: z.number().optional(),
   stop_loss: z.number().optional(),
   target: z.number().optional(),
+  target_price: z.number().optional(),
+  risk_reward: z.number().optional(),
+  risk_pct: z.number().optional(),
+  stop_distance: z.number().optional(),
   reason: z.string().optional(),
 });
 
 const indicatorsSchema = z.object({
   rsi14: z.number().optional(),
   atr14: z.number().optional(),
+  ema20: z.number().optional(),
+  ema50: z.number().optional(),
+  ema200: z.number().optional(),
+  change24h_pct: z.number().optional(),
+  volume_ratio: z.number().optional(),
   trend: z.string().optional(),
   trend_reason: z.string().optional(),
 });
 
 export const analysisSchema = z
   .object({
+    symbol: z.string().optional(),
     price: z.number().optional(),
     indicators: indicatorsSchema.optional(),
     risk: riskSchema.optional(),

@@ -8,16 +8,13 @@ import {
   type AlertFormInput,
   type Analysis,
 } from '../lib/schemas';
-import MarketChart from '../components/MarketChart';
-import TradingViewWidget from '../components/TradingViewWidget';
 import StrategiesView from '../components/StrategiesView';
 import TradingJournalView from '../components/TradingJournalView';
 import TestingView from '../components/TestingView';
-import IndicatorMenu, { type IndicatorStates } from '../components/IndicatorMenu';
-import StatsTicker from '../components/StatsTicker';
-import AnalysisPanel from '../components/AnalysisPanel';
-import AlertsPanel from '../components/AlertsPanel';
-import InstrumentSelect from '../components/InstrumentSelect';
+import { type IndicatorStates } from '../components/IndicatorMenu';
+import AppShell, { type WorkspaceTab } from '../components/AppShell';
+import DashboardView from '../components/DashboardView';
+import TradingTerminalView from '../components/TradingTerminalView';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -46,12 +43,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertNotifications, setAlertNotifications] = useState<AlertToast[]>([]);
-  const [candleNotificationsEnabled, setCandleNotificationsEnabled] = useState(false);
+  const candleNotificationsEnabled = false;
   const [telegramSendingId, setTelegramSendingId] = useState<string | null>(null);
   const [telegramStatus, setTelegramStatus] = useState<string | null>(null);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'tradingview'>('lightweight');
-  const [activeTab, setActiveTab] = useState<'chart' | 'strategies' | 'testing' | 'journal'>('chart');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -86,36 +83,7 @@ export default function Home() {
       </div>,
       { toastId: notification.id }
     );
-  }, [candleNotificationsEnabled]);
-
-  const stopCandleNotifications = () => {
-    setCandleNotificationsEnabled(false);
-    toast.dismiss('candle-notification-controls');
-  };
-
-  const resumeCandleNotifications = () => {
-    setCandleNotificationsEnabled(true);
-  };
-
-  useEffect(() => {
-    toast(
-      <div className="candle-toast">
-        <strong>1-minute candle notifications</strong>
-        <span>{candleNotificationsEnabled ? 'Running' : 'Stopped'}</span>
-        <button
-          type="button"
-          onClick={candleNotificationsEnabled ? stopCandleNotifications : resumeCandleNotifications}
-        >
-          {candleNotificationsEnabled ? 'Stop' : 'Resume'}
-        </button>
-      </div>,
-      {
-        toastId: 'candle-notification-controls',
-        autoClose: false,
-        closeButton: true,
-      }
-    );
-  }, [candleNotificationsEnabled]);
+  }, [candleNotificationsEnabled, telegramSendingId]);
 
   const sendCandleToTelegram = async (candle: CandleCloseToast) => {
     setTelegramSendingId(candle.id);
@@ -352,82 +320,22 @@ export default function Home() {
   }
 
   return (
-    <main>
-      {/* Terminal Top Header */}
-      <header className="terminal-header">
-        <div className="header-brand">
-          <span className="brand-badge">PRO</span>
-          <div>
-            <h1 className="brand-title">AI Trading Platform</h1>
-          </div>
-        </div>
-
-        {/* Center Navigation Tabs */}
-        <nav className="header-nav-tabs" role="tablist" aria-label="Main Navigation">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'chart'}
-            className={`nav-tab-btn ${activeTab === 'chart' ? 'active' : ''}`}
-            onClick={() => setActiveTab('chart')}
-          >
-            <span className="tab-icon">📈</span>
-            <span>Chart & Analysis</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'strategies'}
-            className={`nav-tab-btn ${activeTab === 'strategies' ? 'active' : ''}`}
-            onClick={() => setActiveTab('strategies')}
-          >
-            <span className="tab-icon">⚡</span>
-            <span>Strategies & Backtest</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'testing'}
-            className={`nav-tab-btn ${activeTab === 'testing' ? 'active' : ''}`}
-            onClick={() => setActiveTab('testing')}
-          >
-            <span className="tab-icon">🧪</span>
-            <span>Testing & Paper Run</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'journal'}
-            className={`nav-tab-btn ${activeTab === 'journal' ? 'active' : ''}`}
-            onClick={() => setActiveTab('journal')}
-          >
-            <span className="tab-icon">📝</span>
-            <span>Trading Journal</span>
-          </button>
-        </nav>
-
-        {/* Header Right Controls */}
-        <div className="header-controls">
-          <button
-            type="button"
-            className="theme-toggle-btn"
-            onClick={() => setThemeMode(theme === 'dark' ? 'light' : 'dark')}
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label="Toggle theme"
-          >
-            {theme === 'dark' ? '☀️' : '🌙'}
-          </button>
-        </div>
-      </header>
-
-      <div className="header-separator-line" role="separator" aria-orientation="horizontal" />
-
+    <AppShell
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      symbol={symbol}
+      timeframe={timeframe}
+      theme={theme}
+      onToggleTheme={() => setThemeMode(theme === 'dark' ? 'light' : 'dark')}
+      alertCount={alerts.filter((alert) => alert.enabled).length}
+    >
       {/* Floating Alert Notifications */}
       {alertNotifications.length > 0 && (
         <section className="alert-notifications">
           {alertNotifications.map((notification, index) => (
             <div key={index} className="alert-notification">
-              🚨 <strong>{notification.symbol}</strong>: {notification.message}
+              <span className="notification-icon" aria-hidden="true">!</span>
+              <strong>{notification.symbol}</strong>: {notification.message}
             </div>
           ))}
         </section>
@@ -440,102 +348,38 @@ export default function Home() {
       )}
 
       {/* Dynamic Tab Views */}
+      {activeTab === 'dashboard' && (
+        <DashboardView
+          onOpenTerminal={(nextSymbol) => {
+            setSymbol(nextSymbol);
+            setActiveTab('chart');
+          }}
+        />
+      )}
+
       {activeTab === 'chart' && (
-        <div className="terminal-dashboard">
-          {/* Top Ticker Stats */}
-          <StatsTicker analysis={analysis} symbol={symbol} timeframe={timeframe} />
-
-          {/* Main Chart Section */}
-          <div
-            className={`chart-fullscreen-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`}
-            ref={chartContainerRef}
-          >
-            <div className="chart-unified-toolbar">
-              <div className="toolbar-left-group">
-                <div className="control-group" style={{ marginRight: '8px' }}>
-                  <InstrumentSelect currentSymbol={symbol} onSelectSymbol={setSymbol} />
-                </div>
-                <div className="timeframe-pills">
-                  {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
-                    <button
-                      key={tf}
-                      type="button"
-                      className={`tf-btn ${timeframe === tf ? 'active' : ''}`}
-                      onClick={() => setTimeframe(tf)}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="toolbar-right-group">
-                <IndicatorMenu indicators={indicators} onToggle={updateIndicator} />
-                <div className="toolbar-divider" />
-                <div className="engine-switcher-pills">
-                  <button
-                    type="button"
-                    className={chartEngine === 'lightweight' ? 'active' : ''}
-                    onClick={() => setChartEngineMode('lightweight')}
-                  >
-                    Canvas
-                  </button>
-                  <button
-                    type="button"
-                    className={chartEngine === 'tradingview' ? 'active' : ''}
-                    onClick={() => setChartEngineMode('tradingview')}
-                  >
-                    TradingView
-                  </button>
-                </div>
-                <div className="toolbar-divider" />
-                <button
-                  type="button"
-                  className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`}
-                  onClick={toggleFullscreen}
-                  title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                  aria-label="Toggle fullscreen"
-                >
-                  <span style={{ fontSize: '13px' }}>{isFullscreen ? '⤹' : '⤢'}</span>
-                  <span>{isFullscreen ? 'Exit' : 'Full'}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="chart-viewport-card">
-              {chartEngine === 'lightweight' ? (
-                <MarketChart
-                  symbol={symbol}
-                  timeframe={timeframe}
-                  indicators={indicators}
-                  theme={theme}
-                  onCandleClosed={handleCandleClosed}
-                />
-              ) : (
-                <TradingViewWidget symbol={symbol} timeframe={timeframe} theme={theme} />
-              )}
-            </div>
-          </div>
-
-          {/* Analysis & Alerts Grid */}
-          <div className="dashboard-analysis-alerts-grid">
-            <AnalysisPanel
-              symbol={symbol}
-              timeframe={timeframe}
-              analysis={analysis}
-              loading={loading}
-              onRefresh={fetchAnalysis}
-            />
-            <AlertsPanel
-              symbol={symbol}
-              alerts={alerts}
-              currentPrice={analysis?.price}
-              onCreate={createAlert}
-              onToggle={toggleAlert}
-              onDelete={deleteAlert}
-            />
-          </div>
-        </div>
+        <TradingTerminalView
+          symbol={symbol}
+          timeframe={timeframe}
+          analysis={analysis}
+          loading={loading}
+          alerts={alerts}
+          indicators={indicators}
+          theme={theme}
+          chartEngine={chartEngine}
+          isFullscreen={isFullscreen}
+          chartContainerRef={chartContainerRef}
+          onSymbolChange={setSymbol}
+          onTimeframeChange={setTimeframe}
+          onIndicatorToggle={updateIndicator}
+          onChartEngineChange={setChartEngineMode}
+          onToggleFullscreen={toggleFullscreen}
+          onCandleClosed={handleCandleClosed}
+          onRefreshAnalysis={fetchAnalysis}
+          onCreateAlert={createAlert}
+          onToggleAlert={toggleAlert}
+          onDeleteAlert={deleteAlert}
+        />
       )}
 
       {activeTab === 'strategies' && <StrategiesView symbol={symbol} timeframe={timeframe} />}
@@ -543,6 +387,6 @@ export default function Home() {
       {activeTab === 'testing' && <TestingView />}
 
       {activeTab === 'journal' && <TradingJournalView />}
-    </main>
+    </AppShell>
   );
 }
