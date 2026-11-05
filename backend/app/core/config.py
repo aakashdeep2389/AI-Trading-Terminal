@@ -4,11 +4,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_env: str = 'development'
     cors_origins: str = 'http://localhost:3000'
-    market_provider: str = 'demo'
+    # Prefer the real Twelve Data provider in non-local configurations. The
+    # provider manager still requires MARKET_API_KEY before it can use it.
+    market_provider: str = 'twelvedata'
     market_api_key: str = Field('', validation_alias=AliasChoices('MARKET_API_KEY', 'TWELVEDATA_API_KEY'))
     database_url: str = 'postgresql+asyncpg://trading:trading_dev@localhost:5432/trading'
     redis_url: str = 'redis://localhost:6379/0'
     market_stale_after_seconds: int = 20
+    market_stream_interval_seconds: float = 30.0
     ai_provider: str = 'disabled'
     news_provider: str = 'disabled'
     news_api_key: str = Field('', validation_alias=AliasChoices('NEWS_API_KEY', 'NEWSAPI_KEY'))

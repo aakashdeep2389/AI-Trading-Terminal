@@ -133,5 +133,8 @@ def build_manager() -> ProviderManager:
     if settings.market_provider == 'twelvedata' and settings.market_api_key:
         providers.append(TwelveDataProvider(settings.market_api_key))
     providers.append(FreeMarketProvider())
-    providers.append(DemoMarketProvider())
+    # Keep demo data available only as an explicit development fallback. A
+    # missing Twelve Data key must not silently look like live market data.
+    if settings.app_env == 'development':
+        providers.append(DemoMarketProvider())
     return ProviderManager(providers)

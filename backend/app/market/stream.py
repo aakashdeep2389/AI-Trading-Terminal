@@ -116,6 +116,6 @@ class MarketStream:
                 # disable candle-close alerts for this symbol.
                 self.last_error[symbol] = f'{type(exc).__name__}: {exc}'
                 logger.exception('Market stream iteration failed for %s', symbol)
-            await asyncio.sleep(60) # Increased to 60s to respect free tier rate limit (8 calls/min)
+            await asyncio.sleep(settings.market_stream_interval_seconds)
 
 stream = MarketStream()
