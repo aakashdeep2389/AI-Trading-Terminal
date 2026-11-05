@@ -78,7 +78,13 @@ async def chart_config(
     if theme not in ('dark', 'light'):
         theme = 'dark'
     import pandas as pd
-    candles_data = await get_candles(symbol, timeframe, 300, refresh=refresh)
+    try:
+        candles_data = await get_candles(symbol, timeframe, 300, refresh=refresh)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f'Live historical market data unavailable for {symbol.upper()}: {exc}',
+        ) from exc
     analysis_data = await analyze(candles_data, symbol.upper())
 
     patterns = analysis_data.get('patterns', [])

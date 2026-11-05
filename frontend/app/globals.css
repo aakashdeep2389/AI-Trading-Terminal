@@ -918,16 +918,25 @@ main {
 
 .chart-fullscreen-wrapper:fullscreen,
 .chart-fullscreen-wrapper.is-fullscreen {
+  z-index: 20;
   background: var(--bg-body);
   padding: 16px 20px;
   height: 100vh;
   width: 100vw;
 }
 
+.chart-fullscreen-wrapper:fullscreen .terminal-chart-toolbar,
+.chart-fullscreen-wrapper.is-fullscreen .terminal-chart-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+}
+
 .chart-fullscreen-wrapper:fullscreen .chart-viewport-card,
 .chart-fullscreen-wrapper.is-fullscreen .chart-viewport-card {
   flex: 1;
-  height: calc(100vh - 80px);
+  height: calc(100vh - 90px);
   margin-bottom: 0;
 }
 
@@ -947,6 +956,14 @@ main {
 }
 
 .market-chart, .tradingview-widget-container { height: 100%; width: 100%; }
+.market-chart { position: relative; }
+.market-chart-stream-status { position: absolute; z-index: 2; top: 12px; left: 14px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 6px; background: color-mix(in srgb, var(--bg-card) 86%, transparent); color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; pointer-events: none; }
+.market-chart-stream-dot { width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+.market-chart-countdown { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 4px; border: 1px solid var(--border-color); border-radius: 4px; background: rgba(255, 255, 255, .08); color: var(--text-muted); font: 500 9px 'JetBrains Mono', monospace; letter-spacing: .01em; }
+.market-chart-stream-status.live { color: #22c55e; }
+.market-chart-stream-status.connecting { color: #f59e0b; }
+.market-chart-stream-status.offline { color: #ef4444; }
+.market-chart-error { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); width: min(90%, 420px); padding: 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); color: var(--text-muted); text-align: center; }
 
 /* ==========================================================================
    STATS TICKER

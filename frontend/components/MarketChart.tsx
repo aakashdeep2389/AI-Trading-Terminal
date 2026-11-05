@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import {
   createChart,
   CandlestickSeries,
@@ -25,6 +25,14 @@ import {
 import type { IndicatorStates } from './IndicatorMenu';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const TIMEFRAME_SECONDS: Record<string, number> = {
+  '1m': 60,
+  '5m': 300,
+  '15m': 900,
+  '1h': 3600,
+  '4h': 14400,
+  '1d': 86400,
+};
 
 interface MarketChartProps {
   symbol: string;
@@ -38,6 +46,8 @@ interface MarketChartProps {
   showVolume?: boolean;
   indicators?: IndicatorStates;
   onCandleClosed?: (event: CandleCloseEvent) => void;
+  onLiveCandle?: (candle: StreamCandle) => void;
+  refreshKey?: number;
 }
 
 interface BackendSeries {
@@ -87,11 +97,17 @@ export default function MarketChart({
   showVolume,
   indicators,
   onCandleClosed,
+  onLiveCandle,
+  refreshKey = 0,
 }: MarketChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<{ series: ISeriesApi<SeriesType>; type: BackendSeries['type']; kind?: string }[]>([]);
   const lastCandleTimeRef = useRef<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [streamState, setStreamState] = useState<'connecting' | 'live' | 'offline'>('connecting');
+  const [lastUpdate, setLastUpdate] = useState<number | null>(null);
+  const [secondsToClose, setSecondsToClose] = useState<number | null>(null);
 
   const effEMA20 = indicators?.showEMA20 ?? showEMA20 ?? true;
   const effEMA50 = indicators?.showEMA50 ?? showEMA50 ?? true;
@@ -99,6 +115,22 @@ export default function MarketChart({
   const effSR = indicators?.showSupportResistance ?? showSupportResistance ?? true;
   const effPatterns = indicators?.showPatterns ?? showPatterns ?? true;
   const effVolume = indicators?.showVolume ?? showVolume ?? true;
+
+  useEffect(() => {
+    const step = TIMEFRAME_SECONDS[timeframe];
+    if (!step) {
+      setSecondsToClose(null);
+      return;
+    }
+    const updateCountdown = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const elapsed = now % step;
+      setSecondsToClose(step - elapsed);
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(timer);
+  }, [timeframe]);
 
   const fetchConfig = useCallback(async () => {
     const params = new URLSearchParams({
@@ -136,7 +168,12 @@ export default function MarketChart({
       if (!host || disposed) return;
 
       const config = await fetchConfig();
-      if (disposed || !config) return;
+      if (disposed) return;
+      if (!config) {
+        setError('Live historical market data is unavailable. Configure a market-data provider to load this chart.');
+        return;
+      }
+      setError(null);
 
       // 2. Create the chart.
       await new Promise(resolve => requestAnimationFrame(resolve));
@@ -203,6 +240,9 @@ export default function MarketChart({
       // 4. Live updates
       const wsUrl = API.replace(/^http/, 'ws');
       ws = new WebSocket(`${wsUrl}/api/ws/market/${symbol}?timeframe=${timeframe}`);
+      ws.onopen = () => setStreamState('live');
+      ws.onerror = () => setStreamState('offline');
+      ws.onclose = () => setStreamState('offline');
       ws.onmessage = async (event) => {
         let message: { type?: string; data?: StreamCandle } | null = null;
         try {
@@ -220,24 +260,14 @@ export default function MarketChart({
 
         const lastSeenTime = lastCandleTimeRef.current;
 
-        // If new candle closed, refresh indicators
-        if (lastSeenTime !== null && ts > lastSeenTime) {
-            const newConfig = await fetchConfig();
-            if (newConfig) {
-                // Update existing series
-                for (const s of newConfig.series ?? []) {
-                    const existing = seriesRef.current.find(a => a.type === s.type && (a.kind === s.kind || (!a.kind && !s.kind)));
-                    if (existing && s.data?.length) {
-                    existing.series.setData(s.data as (CandlestickData<Time> | LineData<Time> | HistogramData<Time>)[]);
-                    }
-                }
-            }
-        }
-        
-        lastCandleTimeRef.current = ts;
+        // Ignore delayed messages so incremental updates preserve chart order.
+        if (lastSeenTime !== null && ts < lastSeenTime) return;
 
+        lastCandleTimeRef.current = Math.max(lastCandleTimeRef.current ?? ts, ts);
+        setLastUpdate(Date.now());
         const candleSeries = seriesRef.current.find((a) => a.type === 'Candlestick');
         if (candleSeries) candleSeries.series.update({ time: ts, open, high, low, close });
+        onLiveCandle?.(message.data);
 
         const volumeSeries = seriesRef.current.find((a) => a.type === 'Histogram');
         if (volumeSeries) {
@@ -257,7 +287,21 @@ export default function MarketChart({
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchConfig, symbol, timeframe]);
+  }, [fetchConfig, symbol, timeframe, refreshKey]);
 
-  return <div className="market-chart" ref={containerRef} aria-label={`${symbol} ${timeframe} chart`} />;
+  return (
+    <div className="market-chart" ref={containerRef} aria-label={`${symbol} ${timeframe} chart`}>
+      <div className={`market-chart-stream-status ${streamState}`} role="status">
+        <span className="market-chart-stream-dot" aria-hidden="true" />
+        {streamState === 'live' ? 'LIVE' : streamState === 'connecting' ? 'CONNECTING' : 'OFFLINE'}
+        {lastUpdate && streamState === 'live' ? ` · updated ${new Date(lastUpdate).toLocaleTimeString()}` : ''}
+        {secondsToClose !== null && (
+          <span className="market-chart-countdown" aria-label={`Bar closes in ${secondsToClose} seconds`}>
+            {Math.floor(secondsToClose / 60)}:{String(secondsToClose % 60).padStart(2, '0')}
+          </span>
+        )}
+      </div>
+      {error && <div role="status" className="market-chart-error">{error}</div>}
+    </div>
+  );
 }

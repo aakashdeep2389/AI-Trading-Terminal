@@ -50,6 +50,8 @@ export default function Home() {
   const [chartEngine, setChartEngine] = useState<'lightweight' | 'tradingview'>('lightweight');
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('dashboard');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -84,6 +86,10 @@ export default function Home() {
       { toastId: notification.id }
     );
   }, [candleNotificationsEnabled, telegramSendingId]);
+
+  const handleLiveCandle = useCallback((candle: { close: number }) => {
+    setAnalysis((current) => current ? { ...current, price: candle.close } : current);
+  }, []);
 
   const sendCandleToTelegram = async (candle: CandleCloseToast) => {
     setTelegramSendingId(candle.id);
@@ -219,6 +225,13 @@ export default function Home() {
     }
     setLoading(false);
   }, [symbol, timeframe]);
+
+  const refreshChart = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshKey((current) => current + 1);
+    await fetchAnalysis();
+    setRefreshing(false);
+  }, [fetchAnalysis]);
 
   // Fetch alerts list
   const fetchAlerts = useCallback(async () => {
@@ -375,6 +388,10 @@ export default function Home() {
           onChartEngineChange={setChartEngineMode}
           onToggleFullscreen={toggleFullscreen}
           onCandleClosed={handleCandleClosed}
+          onLiveCandle={handleLiveCandle}
+          onRefreshChart={refreshChart}
+          refreshing={refreshing}
+          refreshKey={refreshKey}
           onRefreshAnalysis={fetchAnalysis}
           onCreateAlert={createAlert}
           onToggleAlert={toggleAlert}

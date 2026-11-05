@@ -31,6 +31,10 @@ interface TradingTerminalViewProps {
   onChartEngineChange: (engine: ChartEngine) => void;
   onToggleFullscreen: () => void;
   onCandleClosed: (event: { symbol?: string; timeframe?: string; data?: { time: number; open: number; high: number; low: number; close: number; volume: number } }) => void;
+  onLiveCandle: (candle: { time: number; open: number; high: number; low: number; close: number; volume: number }) => void;
+  onRefreshChart: () => void;
+  refreshing: boolean;
+  refreshKey: number;
   onRefreshAnalysis: () => void;
   onCreateAlert: (input: AlertFormInput) => void;
   onToggleAlert: (id: string, enabled: boolean) => void;
@@ -58,6 +62,10 @@ export default function TradingTerminalView({
   onChartEngineChange,
   onToggleFullscreen,
   onCandleClosed,
+  onLiveCandle,
+  onRefreshChart,
+  refreshing,
+  refreshKey,
   onRefreshAnalysis,
   onCreateAlert,
   onToggleAlert,
@@ -96,23 +104,23 @@ export default function TradingTerminalView({
       <div className="terminal-workspace">
         <div className="terminal-chart-column">
           <StatsTicker analysis={analysis} symbol={symbol} timeframe={timeframe} />
-          <div className="terminal-chart-toolbar">
-            <div className="terminal-toolbar-group">
-              <span className="terminal-toolbar-label">TIMEFRAME</span>
-              <div className="timeframe-pills">
-                {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <button key={tf} type="button" className={`tf-btn ${timeframe === tf ? 'active' : ''}`} onClick={() => onTimeframeChange(tf)}>{tf}</button>)}
+          <div className={`chart-fullscreen-wrapper terminal-chart-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`} ref={chartContainerRef}>
+            <div className="terminal-chart-toolbar">
+              <div className="terminal-toolbar-group">
+                <span className="terminal-toolbar-label">TIMEFRAME</span>
+                <div className="timeframe-pills">
+                  {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => <button key={tf} type="button" className={`tf-btn ${timeframe === tf ? 'active' : ''}`} onClick={() => onTimeframeChange(tf)}>{tf}</button>)}
+                </div>
+              </div>
+              <div className="terminal-toolbar-actions">
+                <IndicatorMenu indicators={indicators} onToggle={onIndicatorToggle} />
+                <div className="engine-switcher-pills"><button type="button" className={chartEngine === 'lightweight' ? 'active' : ''} onClick={() => onChartEngineChange('lightweight')}>Lightweight</button><button type="button" className={chartEngine === 'tradingview' ? 'active' : ''} onClick={() => onChartEngineChange('tradingview')}>TradingView</button></div>
+                <button type="button" className="fullscreen-btn" onClick={onRefreshChart} disabled={refreshing} aria-label="Refresh chart">{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+                <button type="button" className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`} onClick={onToggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>{isFullscreen ? 'Exit' : 'Fullscreen'}</button>
               </div>
             </div>
-            <div className="terminal-toolbar-actions">
-              <IndicatorMenu indicators={indicators} onToggle={onIndicatorToggle} />
-              <div className="engine-switcher-pills"><button type="button" className={chartEngine === 'lightweight' ? 'active' : ''} onClick={() => onChartEngineChange('lightweight')}>Lightweight</button><button type="button" className={chartEngine === 'tradingview' ? 'active' : ''} onClick={() => onChartEngineChange('tradingview')}>TradingView</button></div>
-              <button type="button" className={`fullscreen-btn ${isFullscreen ? 'active' : ''}`} onClick={onToggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>{isFullscreen ? 'Exit' : 'Fullscreen'}</button>
-            </div>
-          </div>
-
-          <div className={`chart-fullscreen-wrapper terminal-chart-wrapper ${isFullscreen ? 'is-fullscreen' : ''}`} ref={chartContainerRef}>
             <div className="chart-viewport-card">
-              {chartEngine === 'lightweight' ? <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} onCandleClosed={onCandleClosed} /> : <TradingViewWidget symbol={symbol} timeframe={timeframe} theme={theme} />}
+              {chartEngine === 'lightweight' ? <MarketChart symbol={symbol} timeframe={timeframe} indicators={indicators} theme={theme} onCandleClosed={onCandleClosed} onLiveCandle={onLiveCandle} refreshKey={refreshKey} /> : <TradingViewWidget symbol={symbol} timeframe={timeframe} theme={theme} />}
             </div>
           </div>
 

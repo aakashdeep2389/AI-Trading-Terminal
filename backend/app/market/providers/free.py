@@ -81,23 +81,13 @@ class FreeMarketProvider(MarketProvider):
         ]
 
     async def _anchored_gold_history(self, timeframe: str, limit: int) -> list[Candle]:
-        """Synthesize OHLC history anchored at the real current gold spot
-        price so chart candles match the live tick during a Twelve Data
-        outage. The pattern mirrors the deterministic demo drift but is
-        seeded from the live price, giving a plausible near-term history.
-        When Twelve Data recovers, real history replaces this immediately."""
-        spot = await self._gold_spot()
-        step = FALLBACK_STEP.get(timeframe, 3600)
-        now = int(datetime.now(timezone.utc).timestamp())
-        out: list[Candle] = []
-        price = spot
-        for i in range(limit):
-            drift = __import__('math').sin(i / 14) * spot * 0.002
-            noise = __import__('math').sin(i * 2.13) * spot * 0.0007
-            close = max(0.01, price + drift + noise)
-            high = max(price, close) + abs(__import__('math').sin(i * 0.71)) * spot * 0.001
-            low = min(price, close) - abs(__import__('math').cos(i * 0.47)) * spot * 0.001
-            out.append(Candle(time=now - (limit - i) * step, open=price, high=high,
-                              low=low, close=close, volume=0))
-            price = close
-        return out
+        """Reject gold history when no real historical source is available.
+
+        A spot quote cannot be expanded into OHLC candles without inventing
+        market data. The configured historical provider must supply the chart
+        series; callers should surface the unavailable state instead.
+        """
+        raise RuntimeError(
+            'No real XAUUSD historical data source is available from the free provider; '
+            'configure a Twelve Data key for chart history.'
+        )

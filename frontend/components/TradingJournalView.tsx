@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { exportJournalTrades, importJournalTrades } from '../api/journal';
 
+// Journal screenshots may be API-hosted uploads or local blob previews, so they
+// cannot use next/image's static optimization pipeline reliably.
+/* eslint-disable @next/next/no-img-element */
+
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Trade {
