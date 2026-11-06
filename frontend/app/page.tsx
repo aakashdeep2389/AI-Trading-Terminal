@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
 import {
   alertNotificationSchema,
+  bollingerNotificationSchema,
   type Alert,
   type AlertFormInput,
   type Analysis,
@@ -20,6 +21,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface AlertToast {
   alert_id?: string;
+  symbol: string;
+  message: string;
+}
+
+interface BollingerToast {
+  event_id: string;
+  kind: 'alert' | 'signal' | 'breakout';
   symbol: string;
   message: string;
 }
@@ -43,6 +51,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [alertNotifications, setAlertNotifications] = useState<AlertToast[]>([]);
+  const [bollingerNotifications, setBollingerNotifications] = useState<BollingerToast[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const seenBollingerEvents = useRef<Set<string>>(new Set());
   const candleNotificationsEnabled = false;
   const [telegramSendingId, setTelegramSendingId] = useState<string | null>(null);
   const [telegramStatus, setTelegramStatus] = useState<string | null>(null);
@@ -263,13 +275,37 @@ export default function Home() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          const parsed = alertNotificationSchema.safeParse(data);
-          if (parsed.success) {
-            const toast: AlertToast = parsed.data.data;
-            setAlertNotifications((prev) => [...prev, toast]);
-            setTimeout(() => {
-              setAlertNotifications((prev) => prev.filter((n) => n !== toast));
-            }, 6000);
+          const bollinger = bollingerNotificationSchema.safeParse(data);
+          if (bollinger.success) {
+            const event = bollinger.data;
+            if (seenBollingerEvents.current.has(event.event_id)) return;
+            seenBollingerEvents.current.add(event.event_id);
+            const notification = {
+              event_id: event.event_id,
+              kind: event.kind,
+              symbol: event.data.symbol,
+              message: event.message,
+            };
+            setBollingerNotifications((prev) => [notification, ...prev].slice(0, 4));
+            if (soundEnabled && audioContextRef.current) {
+              const context = audioContextRef.current;
+              const oscillator = context.createOscillator();
+              const gain = context.createGain();
+              oscillator.frequency.value = event.kind === 'signal' ? 880 : 660;
+              gain.gain.setValueAtTime(0.08, context.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.2);
+              oscillator.connect(gain).connect(context.destination);
+              oscillator.start();
+              oscillator.stop(context.currentTime + 0.2);
+            }
+            setTimeout(() => setBollingerNotifications((prev) => prev.filter((n) => n.event_id !== event.event_id)), 6000);
+          } else {
+            const parsed = alertNotificationSchema.safeParse(data);
+            if (parsed.success) {
+              const notification: AlertToast = parsed.data.data;
+              setAlertNotifications((prev) => [...prev, notification]);
+              setTimeout(() => setAlertNotifications((prev) => prev.filter((n) => n !== notification)), 6000);
+            }
           }
         } catch (e) {
           console.error('Failed to parse alert notification WS message:', e);
@@ -285,7 +321,18 @@ export default function Home() {
       if (ws) ws.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, []);
+  }, [soundEnabled]);
+
+  const enableAlertSound = async () => {
+    try {
+      const context = audioContextRef.current ?? new AudioContext();
+      await context.resume();
+      audioContextRef.current = context;
+      setSoundEnabled(true);
+    } catch {
+      setSoundEnabled(false);
+    }
+  };
 
   async function createAlert(input: AlertFormInput) {
     try {
@@ -342,7 +389,21 @@ export default function Home() {
       onToggleTheme={() => setThemeMode(theme === 'dark' ? 'light' : 'dark')}
       alertCount={alerts.filter((alert) => alert.enabled).length}
     >
+      <button type="button" className="alert-sound-toggle" onClick={enableAlertSound}>
+        {soundEnabled ? '🔊 Alert sound enabled' : '🔇 Enable alert sound'}
+      </button>
+
       {/* Floating Alert Notifications */}
+      {bollingerNotifications.length > 0 && (
+        <section className="alert-notifications">
+          {bollingerNotifications.map((notification) => (
+            <div key={notification.event_id} className="alert-notification bollinger-notification">
+              <span className="notification-icon" aria-hidden="true">BB</span>
+              <div><strong>{notification.kind.toUpperCase()} · {notification.symbol}</strong><br />{notification.message}</div>
+            </div>
+          ))}
+        </section>
+      )}
       {alertNotifications.length > 0 && (
         <section className="alert-notifications">
           {alertNotifications.map((notification, index) => (
