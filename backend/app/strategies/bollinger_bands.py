@@ -6,6 +6,7 @@ from datetime import datetime
 from app.engine.indicators import bollinger_bands
 from app.integrations.telegram import telegram_client
 from app.core.config import settings
+from app.market.realtime import hub
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class BollingerBandsStrategy:
         last_candle = candles_15m[-1]
 
         buy_state = self.buy_alerts.get(symbol)
+        transitioned_to_confirmation = False
 
         if buy_state and buy_state.status == "AWAITING_15M_BREAKOUT":
             if last_candle.time > buy_state.alert_candle_time:
@@ -170,10 +172,11 @@ class BollingerBandsStrategy:
                 if last_candle.high > buy_state.alert_candle_high:
                     buy_state.status = "AWAITING_5M_CONFIRMATION"
                     buy_state.breakout_15m_high = last_candle.high
+                    transitioned_to_confirmation = True
 
         # Check for new 15m Buy Alert (low > lower_band, touching is invalid).
-        # The alert is emitted once when this completed 15m candle qualifies.
-        if lower[-1] is not None:
+        # Do not replace a state that just advanced to 5m confirmation on this candle.
+        if not transitioned_to_confirmation and lower[-1] is not None:
             if last_candle.low > lower[-1]:
                 self.buy_alerts[symbol] = BuyAlertState(
                     symbol=symbol,
@@ -275,8 +278,10 @@ class BollingerBandsStrategy:
 
         if alert:
             await self.notify_alert(alert)
+            await self.publish_in_app('alert', alert)
         if signal:
             await self.notify_signal(signal)
+            await self.publish_in_app('signal', signal)
 
         # Bollinger Telegram notifications are intentionally limited to the
         # strategy timeframes: sell alerts on 5m and buy alerts on 15m.
@@ -284,9 +289,32 @@ class BollingerBandsStrategy:
             breakout = self.check_bollinger_breakout(symbol, candles, timeframe=timeframe)
             if breakout:
                 await self.notify_breakout(breakout)
+                await self.publish_in_app('breakout', breakout)
 
         if settings.candle_close_notifications_enabled:
             await self.notify_candle_close(symbol, timeframe, candle)
+
+    async def publish_in_app(self, kind: str, payload: dict):
+        """Publish one validated-by-contract Bollinger event for browser clients."""
+        event = {
+            'type': 'bollinger',
+            'event_id': f"bollinger:{kind}:{payload.get('symbol')}:{payload.get('timeframe')}:{payload.get('timestamp')}",
+            'kind': kind,
+            'data': payload,
+            'message': self._in_app_message(kind, payload),
+        }
+        try:
+            await hub.publish_bollinger(event)
+        except Exception:
+            logger.exception('Failed to publish Bollinger in-app event for %s', payload.get('symbol'))
+
+    @staticmethod
+    def _in_app_message(kind: str, payload: dict) -> str:
+        if kind == 'breakout':
+            return f"{payload['breakout_type']} band breakout on {payload['symbol']} ({payload['timeframe']})"
+        if kind == 'signal':
+            return f"Confirmed {payload['direction']} signal on {payload['symbol']} ({payload['timeframe']})"
+        return f"{payload['direction']} Bollinger alert on {payload['symbol']} ({payload['timeframe']})"
 
     async def notify_candle_close(self, symbol: str, timeframe: str, candle: Candle):
         """Send an explicitly requested candle notification, if enabled."""
@@ -367,7 +395,9 @@ class BollingerBandsStrategy:
             f"• <b>Close Price:</b> <code>{breakout['close']}</code>\n"
             f"• <b>Band Value:</b> <code>{round(breakout['band_value'], 4)}</code>\n"
         )
-        await telegram_client.send_message(msg)
+        sent = await telegram_client.send_message(msg)
+        if not sent:
+            logger.warning('Bollinger breakout Telegram notification was not sent for %s', breakout.get('symbol'))
 
 # Global strategy instance
 bb_strategy = BollingerBandsStrategy()

@@ -268,11 +268,14 @@ async def alerts_ws(websocket: WebSocket):
             if message and message.get('data'):
                 try:
                     alert_data = json.loads(message['data'])
-                    await websocket.send_json({
-                        'type': 'alert',
-                        'data': alert_data,
-                        'timestamp': __import__('time').time()
-                    })
+                    if alert_data.get('type') == 'bollinger':
+                        await websocket.send_json(alert_data)
+                    else:
+                        await websocket.send_json({
+                            'type': 'alert',
+                            'data': alert_data,
+                            'timestamp': __import__('time').time()
+                        })
                 except json.JSONDecodeError:
                     pass
             else:

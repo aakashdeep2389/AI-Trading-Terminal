@@ -17,6 +17,20 @@ export const alertNotificationSchema = z.object({
   }),
 });
 
+export const bollingerNotificationSchema = z.object({
+  type: z.literal('bollinger'),
+  event_id: z.string(),
+  kind: z.enum(['alert', 'signal', 'breakout']),
+  data: z.object({
+    symbol: z.string(),
+    timeframe: z.string(),
+    timestamp: z.number(),
+  }).passthrough(),
+  message: z.string(),
+});
+
+export type BollingerNotification = z.infer<typeof bollingerNotificationSchema>;
+
 // ---- Alerts CRUD / list ----
 export const alertSchema = z.object({
   id: z.string(),

@@ -1450,6 +1450,20 @@ main {
 /* ==========================================================================
    NOTIFICATIONS
    ========================================================================== */
+.alert-sound-toggle {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1101;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
 .alert-notifications {
   position: fixed;
   top: 20px;

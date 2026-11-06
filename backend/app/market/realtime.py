@@ -35,6 +35,14 @@ class RealtimeHub:
         payload = json.dumps({'type':'candle_closed','symbol':symbol.upper(),'timeframe':timeframe,'data':candle.model_dump()})
         await self._publish(self.channel(symbol,timeframe), payload)
 
+    async def publish_bollinger(self, event: dict):
+        """Publish a strategy event to the existing browser alert channel."""
+        await self._publish('ALERTS:notifications', json.dumps(event))
+
+    async def publish(self, namespace: str, event_type: str, payload: dict):
+        """Publish compatibility for alert processor integrations."""
+        await self._publish(f'{namespace}:{event_type}', json.dumps(payload))
+
     async def _publish(self, channel: str, payload: str):
         for queue in tuple(self._local_subscribers[channel]):
             if queue.full():
