@@ -13,8 +13,9 @@ export default function RootLayout({
         {children}
         <ToastContainer
           position="top-right"
-          autoClose={20_000}
+          autoClose={false}
           closeOnClick={false}
+          closeButton
           newestOnTop
           pauseOnHover
           draggable

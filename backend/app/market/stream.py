@@ -2,9 +2,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from .service import get_tick
+from typing import Iterable
+from .service import get_candles, get_tick
 from .providers.free import FreeMarketProvider
-from .models import Tick
+from .models import Candle as MarketCandle, Tick
 from .aggregator import CandleAggregator, TIMEFRAME_SECONDS
 from .realtime import hub
 from ..db.database import SessionLocal
@@ -12,7 +13,8 @@ from ..db.models import CandleRecord
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from ..core.config import settings
-from ..strategies.bollinger_bands import bb_strategy
+from ..strategies.bollinger_bands import bb_strategy, Candle as BollingerCandle
+from ..engine.indicators import bollinger_band_series
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,9 @@ TIMEFRAMES = tuple(TIMEFRAME_SECONDS)
 class MarketStream:
     def __init__(self):
         self.tasks: dict[str, asyncio.Task] = {}
+        self.warmup_task: asyncio.Task | None = None
         self.aggs = {(s, tf): CandleAggregator(tf) for s in SYMBOLS for tf in TIMEFRAMES}
+        self.bollinger_history: dict[str, list[BollingerCandle]] = {}
         self.last_tick: dict[str, dict] = {}
         self.last_closed: dict[str, dict] = {}
         self.last_error: dict[str, str] = {}
@@ -67,11 +71,103 @@ class MarketStream:
         }
 
     async def start(self):
+        self.warmup_task = asyncio.create_task(self._warm_bollinger_history())
         for symbol in SYMBOLS:
             self.tasks[symbol] = asyncio.create_task(self._run(symbol), name=f'market-{symbol}')
         logger.info('Market stream started symbols=%s timeframes=%s', SYMBOLS, TIMEFRAMES)
 
+    async def _warm_bollinger_history(self):
+        """Seed completed 5m/15m bars so alert evaluation works after startup."""
+        for symbol in SYMBOLS:
+            for timeframe in ('5m', '15m'):
+                try:
+                    historical = await get_candles(symbol, timeframe, 50)
+                except Exception:
+                    logger.exception(
+                        'Unable to load Bollinger warm-up history for %s %s',
+                        symbol,
+                        timeframe,
+                    )
+                    continue
+
+                step = TIMEFRAME_SECONDS[timeframe]
+                current_bucket = int(datetime.now(timezone.utc).timestamp()) // step * step
+                completed = sorted(
+                    (candle for candle in historical if candle.time < current_bucket),
+                    key=lambda candle: candle.time,
+                )[-50:]
+                seeded_history = [
+                    BollingerCandle(
+                        time=candle.time,
+                        open=candle.open,
+                        high=candle.high,
+                        low=candle.low,
+                        close=candle.close,
+                        volume=candle.volume,
+                    )
+                    for candle in completed
+                ]
+                key = f'{symbol}_{timeframe}'
+                self.seed_bollinger_history(symbol, timeframe, seeded_history)
+                combined = {candle.time: candle for candle in seeded_history}
+                combined.update(
+                    (candle.time, candle)
+                    for candle in bb_strategy.history.get(key, [])
+                )
+                bb_strategy.history[key] = sorted(
+                    combined.values(),
+                    key=lambda candle: candle.time,
+                )[-50:]
+                if len(completed) < 21:
+                    logger.warning(
+                        'Bollinger warm-up history is short for %s %s: %d completed candles',
+                        symbol,
+                        timeframe,
+                        len(completed),
+                    )
+                else:
+                    logger.info(
+                        'Bollinger history warmed for %s %s with %d completed candles',
+                        symbol,
+                        timeframe,
+                        len(completed),
+                    )
+
+    def seed_bollinger_history(
+        self,
+        symbol: str,
+        timeframe: str,
+        candles: Iterable[MarketCandle | BollingerCandle],
+    ):
+        key = f'{symbol.upper()}_{timeframe}'
+        combined = {
+            candle.time: candle
+            for candle in self.bollinger_history.get(key, [])
+        }
+        combined.update(
+            (
+                candle.time,
+                BollingerCandle(
+                    time=candle.time,
+                    open=candle.open,
+                    high=candle.high,
+                    low=candle.low,
+                    close=candle.close,
+                    volume=candle.volume,
+                ),
+            )
+            for candle in candles
+        )
+        self.bollinger_history[key] = sorted(
+            combined.values(),
+            key=lambda candle: candle.time,
+        )[-50:]
+
     async def stop(self):
+        if self.warmup_task is not None:
+            self.warmup_task.cancel()
+            await asyncio.gather(self.warmup_task, return_exceptions=True)
+            self.warmup_task = None
         for task in self.tasks.values(): task.cancel()
         if self.tasks: await asyncio.gather(*self.tasks.values(), return_exceptions=True)
         self.tasks.clear()
@@ -99,8 +195,11 @@ class MarketStream:
                 await hub.publish_tick(tick)
                 for tf in TIMEFRAMES:
                     candle, opened = self.aggs[(symbol, tf)].update(tick)
-                    await hub.publish_candle(symbol, tf, candle)
                     closed = self.aggs[(symbol, tf)].last_closed
+                    if closed is not None:
+                        self.seed_bollinger_history(symbol, tf, [closed])
+                    bollinger = self._live_bollinger(symbol, tf, candle)
+                    await hub.publish_candle(symbol, tf, candle, bollinger)
                     if closed is not None:
                         logger.info('Candle closed symbol=%s timeframe=%s time=%s', symbol, tf, closed.time)
                         await hub.publish_candle_closed(symbol, tf, closed)
@@ -117,5 +216,22 @@ class MarketStream:
                 self.last_error[symbol] = f'{type(exc).__name__}: {exc}'
                 logger.exception('Market stream iteration failed for %s', symbol)
             await asyncio.sleep(settings.market_stream_interval_seconds)
+
+    def _live_bollinger(self, symbol: str, timeframe: str, candle) -> dict | None:
+        history = self.bollinger_history.get(f'{symbol}_{timeframe}', [])
+        candles = [item for item in history if item.time < candle.time]
+        candles.append(
+            BollingerCandle(
+                time=candle.time,
+                open=candle.open,
+                high=candle.high,
+                low=candle.low,
+                close=candle.close,
+                volume=candle.volume,
+            )
+        )
+        bands = bollinger_band_series(candles, period=20, num_std=1.4)
+        values = {name: series[-1]['value'] if series else None for name, series in bands.items()}
+        return values if all(value is not None for value in values.values()) else None
 
 stream = MarketStream()

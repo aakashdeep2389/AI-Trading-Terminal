@@ -27,8 +27,11 @@ class RealtimeHub:
         payload = json.dumps({'type':'tick','data':tick.model_dump(mode='json')})
         await self._publish(f'tick:{tick.symbol.upper()}', payload)
 
-    async def publish_candle(self, symbol: str, timeframe: str, candle: Candle):
-        payload = json.dumps({'type':'candle','symbol':symbol.upper(),'timeframe':timeframe,'data':candle.model_dump()})
+    async def publish_candle(self, symbol: str, timeframe: str, candle: Candle, bollinger: dict | None = None):
+        data = candle.model_dump()
+        if bollinger is not None:
+            data['bollinger'] = bollinger
+        payload = json.dumps({'type':'candle','symbol':symbol.upper(),'timeframe':timeframe,'data':data})
         await self._publish(self.channel(symbol,timeframe), payload)
 
     async def publish_candle_closed(self, symbol: str, timeframe: str, candle: Candle):
@@ -63,7 +66,9 @@ class RealtimeHub:
             self.redis_available = False
 
     async def subscribe(self, symbol: str, timeframe: str):
-        channel = self.channel(symbol, timeframe)
+        return await self.subscribe_channel(self.channel(symbol, timeframe))
+
+    async def subscribe_channel(self, channel: str):
         try:
             if self.redis is None:
                 raise OSError('Redis client is not installed')

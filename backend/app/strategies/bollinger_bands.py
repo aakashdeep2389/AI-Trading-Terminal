@@ -56,6 +56,19 @@ class BollingerBandsStrategy:
         self.buy_alerts: Dict[str, BuyAlertState] = {}
         self.processed_signals: set = set()
         self.history: Dict[str, List[Candle]] = {}
+        self.run_status: Dict[str, str] = {}
+
+    def get_run_status(self, symbol: str) -> str:
+        return self.run_status.get(symbol.upper(), "running")
+
+    def set_run_status(self, symbol: str, status: str):
+        if status not in ("running", "paused", "stopped"):
+            raise ValueError("status must be running, paused, or stopped")
+        symbol = symbol.upper()
+        self.run_status[symbol] = status
+        if status == "stopped":
+            self.sell_alerts.pop(symbol, None)
+            self.buy_alerts.pop(symbol, None)
 
     def process_5m_candles(self, symbol: str, candles_5m: List[Candle]) -> Optional[dict]:
         """
@@ -240,6 +253,9 @@ class BollingerBandsStrategy:
         self.history[key].append(candle)
         if len(self.history[key]) > 50: # Keep a reasonable buffer
             self.history[key].pop(0)
+
+        if self.get_run_status(symbol) != "running":
+            return
 
         candles = self.history[key]
 

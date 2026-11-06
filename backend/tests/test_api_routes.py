@@ -5,6 +5,7 @@ import pytest_asyncio
 import asyncio
 
 from app.main import app
+from app.strategies.bollinger_bands import bb_strategy
 from app.strategies.schemas import StrategySchema, AdvancedSettings, PriceExecution, TradingStopLoss, UniversalExit, OvernightProtection, MarketplaceSettings
 
 @pytest_asyncio.fixture
@@ -72,3 +73,32 @@ async def test_run_backtest(client: AsyncClient):
     backtest_result = response.json()
     assert backtest_result["strategy"]["name"] == "Test Backtest Strategy"
     assert "result" in backtest_result
+
+@pytest.mark.asyncio
+async def test_bollinger_run_status_endpoints(client: AsyncClient):
+    original_status = bb_strategy.get_run_status("XAUUSD")
+    try:
+        response = await client.patch(
+            "/api/strategies/bollinger/status/xauusd",
+            json={"status": "paused"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"symbol": "XAUUSD", "status": "paused"}
+
+        response = await client.get("/api/strategies/bollinger/status")
+        assert response.status_code == 200
+        assert response.json()["statuses"]["XAUUSD"] == "paused"
+
+        invalid_status = await client.patch(
+            "/api/strategies/bollinger/status/XAUUSD",
+            json={"status": "disabled"},
+        )
+        assert invalid_status.status_code == 422
+
+        unsupported_symbol = await client.patch(
+            "/api/strategies/bollinger/status/ETHUSDT",
+            json={"status": "running"},
+        )
+        assert unsupported_symbol.status_code == 400
+    finally:
+        bb_strategy.set_run_status("XAUUSD", original_status)

@@ -6,6 +6,7 @@ export interface IndicatorStates {
   showEMA20: boolean;
   showEMA50: boolean;
   showEMA200: boolean;
+  showBollingerBands: boolean;
   showSupportResistance: boolean;
   showPatterns: boolean;
   showVolume: boolean;
@@ -61,6 +62,7 @@ export default function IndicatorMenu({ indicators, onToggle, onChange }: Indica
                 handleToggle('showEMA20', true);
                 handleToggle('showEMA50', true);
                 handleToggle('showEMA200', true);
+                handleToggle('showBollingerBands', true);
                 handleToggle('showSupportResistance', true);
                 handleToggle('showPatterns', true);
                 handleToggle('showVolume', true);
@@ -68,6 +70,19 @@ export default function IndicatorMenu({ indicators, onToggle, onChange }: Indica
             >
               Reset All
             </button>
+          </div>
+
+          <div className="indicator-group">
+            <span className="group-title">Volatility</span>
+            <label className="indicator-item">
+              <span className="color-dot bollinger" />
+              <span className="name">Bollinger Bands (20, 1.4)</span>
+              <input
+                type="checkbox"
+                checked={indicators.showBollingerBands}
+                onChange={(e) => handleToggle('showBollingerBands', e.target.checked)}
+              />
+            </label>
           </div>
 
           <div className="indicator-group">

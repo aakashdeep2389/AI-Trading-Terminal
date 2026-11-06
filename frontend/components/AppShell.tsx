@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-export type WorkspaceTab = 'dashboard' | 'chart' | 'strategies' | 'testing' | 'journal';
+export type WorkspaceTab = 'dashboard' | 'chart' | 'alerts' | 'strategies' | 'testing' | 'journal';
 
 type Theme = 'dark' | 'light';
 
@@ -21,6 +21,7 @@ interface AppShellProps {
 const navigation: Array<{ id: WorkspaceTab; label: string; shortLabel: string; icon: string }> = [
   { id: 'dashboard', label: 'Market Dashboard', shortLabel: 'Overview', icon: '▦' },
   { id: 'chart', label: 'Chart & Analysis', shortLabel: 'Chart', icon: '◫' },
+  { id: 'alerts', label: 'Alerts', shortLabel: 'Alerts', icon: '♢' },
   { id: 'strategies', label: 'Strategies & Backtest', shortLabel: 'Strategies', icon: '◇' },
   { id: 'testing', label: 'Testing & Paper Run', shortLabel: 'Paper', icon: '◌' },
   { id: 'journal', label: 'Trading Journal', shortLabel: 'Journal', icon: '▤' },
@@ -73,7 +74,7 @@ export default function AppShell({
             >
               <span className="sidebar-nav-icon" aria-hidden="true">{item.icon}</span>
               <span>{item.label}</span>
-              {item.id === 'chart' && alertCount > 0 && (
+              {(item.id === 'chart' || item.id === 'alerts') && alertCount > 0 && (
                 <span className="sidebar-nav-count" aria-label={`${alertCount} active alerts`}>{alertCount}</span>
               )}
             </button>
@@ -112,7 +113,13 @@ export default function AppShell({
 
           <div className="topbar-actions">
             <div className="topbar-connection"><span className="status-dot online" aria-hidden="true" />Data stream stable</div>
-            <button type="button" className="topbar-icon-button notification-button" aria-label={`${alertCount} active alerts`} title="Active alerts">
+            <button
+              type="button"
+              className="topbar-icon-button notification-button"
+              aria-label={`${alertCount} active alerts`}
+              title="Open alert management"
+              onClick={() => onTabChange('alerts')}
+            >
               ◇
               {alertCount > 0 && <span className="notification-count">{alertCount}</span>}
             </button>

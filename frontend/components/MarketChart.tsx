@@ -52,7 +52,7 @@ interface MarketChartProps {
 
 interface BackendSeries {
   type: SeriesType;
-  kind?: 'SRLine';
+  kind?: 'SRLine' | 'BollingerUpper' | 'BollingerMiddle' | 'BollingerLower';
   data?: unknown[];
   options?: Record<string, unknown>;
   priceScale?: Record<string, unknown>;
@@ -67,6 +67,11 @@ interface StreamCandle {
   low: number;
   close: number;
   volume: number;
+  bollinger?: {
+    upper: number;
+    middle: number;
+    lower: number;
+  };
 }
 
 interface CandleCloseEvent {
@@ -112,6 +117,7 @@ export default function MarketChart({
   const effEMA20 = indicators?.showEMA20 ?? showEMA20 ?? true;
   const effEMA50 = indicators?.showEMA50 ?? showEMA50 ?? true;
   const effEMA200 = indicators?.showEMA200 ?? showEMA200 ?? true;
+  const effBollingerBands = indicators?.showBollingerBands ?? true;
   const effSR = indicators?.showSupportResistance ?? showSupportResistance ?? true;
   const effPatterns = indicators?.showPatterns ?? showPatterns ?? true;
   const effVolume = indicators?.showVolume ?? showVolume ?? true;
@@ -197,6 +203,7 @@ export default function MarketChart({
         // Skip series types that are toggled off.
         if (s.type === 'Histogram' && !showVolume) continue;
         if (s.type === 'Line' && s.kind === 'SRLine' && !showSupportResistance) continue;
+        if (s.kind?.startsWith('Bollinger') && !effBollingerBands) continue;
 
         if (s.type === 'Candlestick') {
           definition = CandlestickSeries;
@@ -277,6 +284,19 @@ export default function MarketChart({
             color: close >= open ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
           });
         }
+
+        if (message.data.bollinger) {
+          for (const [kind, value] of Object.entries({
+            BollingerUpper: message.data.bollinger.upper,
+            BollingerMiddle: message.data.bollinger.middle,
+            BollingerLower: message.data.bollinger.lower,
+          })) {
+            const bandSeries = seriesRef.current.find((item) => item.kind === kind);
+            if (bandSeries && Number.isFinite(value)) {
+              bandSeries.series.update({ time: ts, value });
+            }
+          }
+        }
       };
     }
     mount();
@@ -287,7 +307,7 @@ export default function MarketChart({
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchConfig, symbol, timeframe, refreshKey]);
+  }, [fetchConfig, symbol, timeframe, refreshKey, effBollingerBands]);
 
   return (
     <div className="market-chart" ref={containerRef} aria-label={`${symbol} ${timeframe} chart`}>

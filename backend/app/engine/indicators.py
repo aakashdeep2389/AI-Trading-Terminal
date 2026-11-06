@@ -77,6 +77,18 @@ def bollinger_bands(values: Sequence[float], period: int = 20, num_std: float = 
         lower[i] = mean - num_std * std
     return {'upper': upper, 'middle': middle, 'lower': lower}
 
+def bollinger_band_series(candles, period: int = 20, num_std: float = 1.4):
+    """Return render-ready Bollinger lines computed from candle closes."""
+    bands = bollinger_bands([candle.close for candle in candles], period, num_std)
+    return {
+        name: [
+            {'time': candles[index].time, 'value': value}
+            for index, value in enumerate(values)
+            if value is not None
+        ]
+        for name, values in bands.items()
+    }
+
 def fibonacci_pivots(high: float, low: float, close: float) -> dict:
     pivot = (high + low + close) / 3.0
     rng = high - low

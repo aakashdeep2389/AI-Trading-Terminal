@@ -1,10 +1,13 @@
 import asyncio
 import json
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..market.service import get_candles,get_tick, provider_status
 from ..ai.agent import ChatRequest, narrate, run_chat, analyze
 from ..engine.lw_chart import build_chart_config
+from ..engine.indicators import bollinger_band_series
 from ..engine.backtesting import backtest
 from ..strategies.service import parse_strategy_intent, validate_strategy
 from ..strategies.schemas import StrategySchema
@@ -39,6 +42,26 @@ async def candles(
 async def tick(symbol): return (await get_tick(symbol)).model_dump(mode='json')
 @router.get('/market/status')
 async def market_status(): return {**provider_status(), 'redis': hub.redis_available}
+
+class BollingerRunStatusUpdate(BaseModel):
+    status: Literal['running', 'paused', 'stopped']
+
+@router.get('/strategies/bollinger/status')
+async def get_bollinger_run_status():
+    from ..strategies.bollinger_bands import bb_strategy
+
+    symbols = ('BTCUSDT', 'XAUUSD')
+    return {'statuses': {symbol: bb_strategy.get_run_status(symbol) for symbol in symbols}}
+
+@router.patch('/strategies/bollinger/status/{symbol}')
+async def update_bollinger_run_status(symbol: str, payload: BollingerRunStatusUpdate):
+    from ..strategies.bollinger_bands import bb_strategy
+
+    symbol = symbol.upper()
+    if symbol not in ('BTCUSDT', 'XAUUSD'):
+        raise HTTPException(status_code=400, detail='Unsupported Bollinger alert symbol')
+    bb_strategy.set_run_status(symbol, payload.status)
+    return {'symbol': symbol, 'status': bb_strategy.get_run_status(symbol)}
 
 @router.get('/market/stream-status')
 async def market_stream_status():
@@ -85,6 +108,7 @@ async def chart_config(
             status_code=503,
             detail=f'Live historical market data unavailable for {symbol.upper()}: {exc}',
         ) from exc
+    stream.seed_bollinger_history(symbol, timeframe, candles_data)
     analysis_data = await analyze(candles_data, symbol.upper())
 
     patterns = analysis_data.get('patterns', [])
@@ -109,6 +133,7 @@ async def chart_config(
         show_volume=show_volume, height=500,
         theme=theme,
         ema_series=ema_series,
+        bollinger_series=bollinger_band_series(candles_data, period=20, num_std=1.4),
         support_resistance_levels=indicators.get('support_resistance', []),
         symbol=symbol,
     )
@@ -254,7 +279,7 @@ async def alerts_ws(websocket: WebSocket):
     await websocket.accept()
 
     # Subscribe to Redis alert channel
-    alert_pubsub = await hub.subscribe('ALERTS', 'notifications')
+    alert_pubsub = await hub.subscribe_channel('ALERTS:notifications')
 
     try:
         await websocket.send_json({

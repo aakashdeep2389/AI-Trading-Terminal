@@ -99,6 +99,7 @@ def build_chart_config(
     height: int = 500,
     theme: str = "dark",
     ema_series: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    bollinger_series: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     support_resistance_levels: Optional[List[Dict[str, Any]]] = None,
     symbol: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
@@ -113,6 +114,7 @@ def build_chart_config(
          when the pre-computed optional args are provided.
     ema_series : pre-computed EMA data from ``analyze()``
          ``{"20": [{time, value}, …], "50": …, "200": …}``.
+    bollinger_series : pre-computed Bollinger band lines, keyed by upper/middle/lower.
     support_resistance_levels : flat list from ``indicators['support_resistance']``
          — each item has ``kind`` ("support"/"resistance"), ``price``, ``touches``.
     """
@@ -179,6 +181,27 @@ def build_chart_config(
                         "lastValueVisible": False, "priceLineVisible": False,
                     },
                 })
+
+    # --- Bollinger Bands (20-period SMA, 1.4 standard deviations) ---
+    for band, color, line_style in (
+        ("upper", "#a78bfa", 2),
+        ("middle", "#64748b", 1),
+        ("lower", "#a78bfa", 2),
+    ):
+        data = (bollinger_series or {}).get(band)
+        if data:
+            series.append({
+                "type": "Line",
+                "kind": f"Bollinger{band.title()}",
+                "data": data,
+                "options": {
+                    "color": color,
+                    "lineWidth": 1,
+                    "lineStyle": line_style,
+                    "lastValueVisible": False,
+                    "priceLineVisible": False,
+                },
+            })
 
     # --- Volume histogram ---
     # User-requested: Remove volume for XAUUSD or when zero.

@@ -1,5 +1,10 @@
 import pytest
-from app.strategies.bollinger_bands import BollingerBandsStrategy, Candle
+from app.strategies.bollinger_bands import (
+    BollingerBandsStrategy,
+    BuyAlertState,
+    Candle,
+    SellAlertState,
+)
 
 def test_bollinger_bands_sell_flow():
     strategy = BollingerBandsStrategy()
@@ -62,3 +67,33 @@ def test_bollinger_bands_breakout():
     assert breakout["breakout_type"] == "UPPER"
     assert breakout["close"] == 115.0
 
+def test_stopped_bollinger_alert_clears_pending_signals():
+    strategy = BollingerBandsStrategy()
+    symbol = "BTCUSDT"
+    strategy.sell_alerts[symbol] = SellAlertState(symbol, 1, 105, 95)
+    strategy.buy_alerts[symbol] = BuyAlertState(symbol, 1, 105, 95)
+
+    strategy.set_run_status(symbol, "stopped")
+
+    assert strategy.get_run_status(symbol) == "stopped"
+    assert symbol not in strategy.sell_alerts
+    assert symbol not in strategy.buy_alerts
+
+def test_paused_bollinger_alert_keeps_history_without_publishing(monkeypatch):
+    strategy = BollingerBandsStrategy()
+    strategy.set_run_status("BTCUSDT", "paused")
+    candle = Candle(time=1_700_000_000, open=100, high=105, low=95, close=100)
+    calls = []
+
+    def unexpected_call(*args, **kwargs):
+        calls.append(args)
+
+    monkeypatch.setattr(strategy, "process_5m_candles", unexpected_call)
+    monkeypatch.setattr(strategy, "process_15m_candles", unexpected_call)
+    monkeypatch.setattr(strategy, "check_bollinger_breakout", unexpected_call)
+
+    import asyncio
+    asyncio.run(strategy.on_candle_closed("BTCUSDT", "5m", candle))
+
+    assert strategy.history["BTCUSDT_5m"] == [candle]
+    assert calls == []

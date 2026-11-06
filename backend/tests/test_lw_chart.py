@@ -88,3 +88,23 @@ def test_pattern_markers_pair_with_points():
     assert len(markers) == 1
     assert markers[0]['position'] == 'aboveBar'  # bearish markers sit above the bar
     assert markers[0]['shape'] == 'arrowDown'
+
+
+def test_bollinger_band_series_are_added_to_chart_config():
+    df = _df()
+    df['timestamp'] = pd.to_datetime(df['time'], unit='s')
+    bands = {
+        'upper': [{'time': 1700000000, 'value': 110.0}],
+        'middle': [{'time': 1700000000, 'value': 100.0}],
+        'lower': [{'time': 1700000000, 'value': 90.0}],
+    }
+
+    config = build_chart_config(
+        df, {}, show_emas=False, show_volume=False,
+        bollinger_series=bands,
+    )
+    series = config[0]['series']
+
+    assert [item['kind'] for item in series if item.get('kind', '').startswith('Bollinger')] == [
+        'BollingerUpper', 'BollingerMiddle', 'BollingerLower',
+    ]

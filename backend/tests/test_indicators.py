@@ -1,5 +1,7 @@
+from types import SimpleNamespace
+
 import pytest
-from app.engine.indicators import bollinger_bands, fibonacci_pivots
+from app.engine.indicators import bollinger_band_series, bollinger_bands, fibonacci_pivots
 
 def test_bollinger_bands():
     values = [10.0] * 30
@@ -8,6 +10,18 @@ def test_bollinger_bands():
     assert bb['middle'][-1] == 10.0
     assert bb['upper'][-1] == 10.0
     assert bb['lower'][-1] == 10.0
+
+def test_bollinger_band_series_uses_candle_times_and_strategy_settings():
+    candles = [
+        SimpleNamespace(time=1000 + index * 300, close=10.0)
+        for index in range(25)
+    ]
+
+    bands = bollinger_band_series(candles, period=20, num_std=1.4)
+
+    assert bands['upper'][0] == {'time': candles[19].time, 'value': 10.0}
+    assert bands['middle'][-1] == {'time': candles[-1].time, 'value': 10.0}
+    assert bands['lower'][-1] == {'time': candles[-1].time, 'value': 10.0}
 
 def test_fibonacci_pivots():
     pivots = fibonacci_pivots(high=150.0, low=100.0, close=120.0)

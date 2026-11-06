@@ -14,6 +14,11 @@ export const alertNotificationSchema = z.object({
     alert_id: z.string().optional(),
     symbol: z.string(),
     message: z.string(),
+    fired_at: z.string().optional(),
+    condition_type: z.string().optional(),
+    trigger_value: z.number().optional(),
+    condition_value: z.number().optional(),
+    direction: z.string().optional(),
   }),
 });
 
@@ -31,6 +36,33 @@ export const bollingerNotificationSchema = z.object({
 
 export type BollingerNotification = z.infer<typeof bollingerNotificationSchema>;
 
+export const receivedAlertSchema = z.object({
+  id: z.string(),
+  source: z.enum(['bollinger', 'rule']),
+  kind: z.string(),
+  symbol: z.string(),
+  timeframe: z.string().optional(),
+  message: z.string(),
+  receivedAt: z.string(),
+});
+
+export const bollingerRunStatusesSchema = z.object({
+  statuses: z.record(z.enum(['BTCUSDT', 'XAUUSD']), z.enum(['running', 'paused', 'stopped'])),
+});
+
+export const alertHistoryResponseSchema = z.object({
+  history: z.array(z.object({
+    id: z.number(),
+    alert_id: z.string(),
+    symbol: z.string(),
+    condition_type: z.string(),
+    direction: z.string(),
+    condition_value: z.number(),
+    trigger_value: z.number(),
+    fired_at: z.string(),
+  }).passthrough()),
+});
+
 // ---- Alerts CRUD / list ----
 export const alertSchema = z.object({
   id: z.string(),
@@ -44,10 +76,11 @@ export const alertSchema = z.object({
   notification_channels: z.array(z.string()),
   created_at: z.string(),
   fired_count: z.number(),
-  last_fired_at: z.string().optional(),
+  last_fired_at: z.string().nullable().optional(),
 });
 
 export type Alert = z.infer<typeof alertSchema>;
+export const alertsResponseSchema = z.object({ alerts: z.array(alertSchema) });
 
 // ---- Alert creation form input (validated before POST) ----
 export const alertFormSchema = z.object({
